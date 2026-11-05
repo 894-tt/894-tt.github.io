@@ -740,10 +740,8 @@ async function runOCR(file) {
     const img = await prepareGeminiImage(file);
     if(token !== ocrRunToken) return;
     
-    if(!apiKey) {
-      return runTesseractOCR(file, img.preview);
-    }
-    
+    // 手動APIキーが空の場合もCloudflare Worker経由でGeminiを利用する。
+    // Workerが利用できない場合に限り、下のcatchでエラーを表示する。
     $('#ocrP').src = img.preview;
     $('#ocrProg').style.width = '50%';
     $('#dlg').querySelector('.muted').textContent = 'Geminiで画像を解析しています...';
