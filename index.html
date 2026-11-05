@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#eceef3">
+<title>時間割ノート</title>
+<link rel="manifest" id="mf">
+<script>
+/* ▼ ロゴ画像（Imgur）をここで指定 */
+const LOGO_IMAGE_URL = 'https://i.imgur.com/xxx.png';
+</script>
+<style>
+/* Sonnet UI Base & Flexible Full-Screen Grid */
+:root{--bg:#f8f8ff;--bar:#eceef3;--ink:#1c1b1f;--sub:#49454f;--line:#ccc;--acc:#d3e3fd;--warn:#d93025;
+--c0:#ffe0e0;--c1:#e0eeff;--c2:#e8e0f8;--c3:#ffeedd;--c4:#e6f6e0;--c5:#fff7cc;--c6:#e5e5e5;--c7:#dff6f7}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:"Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;background:#c9ccd4;color:var(--ink);display:flex;justify-content:center}
+
+/* 全画面化設定 */
+#app{position:relative;width:100%;height:100%;background:var(--bg);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 24px #0003}
+@media(min-width:900px){#app{max-width:100%;height:100%;margin:0;border-radius:0}} 
+
+/* 余白削減 & Flex可変長レイアウト */
+#main{flex:1;overflow:auto;display:flex;flex-direction:column;padding-bottom:76px;}
+
+header{display:flex;align-items:center;gap:6px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:var(--bar)}
+header h1{font-size:18px;font-weight:500;margin:0 0 0 6px;flex:1;cursor:pointer;position:relative;text-align:center;}
+header input[type=date]{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+.ib{width:40px;height:40px;border:0;background:none;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--sub)}
+.ib:hover{background:#0001}
+.ib svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.av{width:32px;height:32px;border-radius:50%;background:#5b7fc7;color:#fff;display:grid;place-items:center;font-size:14px;cursor:pointer}
+
+/* PC向け移動ボタン（スマホ幅では非表示にしてスワイプ優先） */
+#bPrev, #bNext { display: none; }
+@media(min-width:480px){ #bPrev, #bNext { display: grid; } }
+
+/* Flat Grid Table System */
+.hd{text-align:center;font-size:12px;color:var(--sub);line-height:1.2;background:var(--bg);position:sticky;top:0;z-index:2;padding:4px 0;}
+.hd b{display:block;font-size:20px;font-weight:500;color:var(--ink)}
+.hd.today b{color:#fff;background:#1a73e8;border-radius:50%;width:32px;height:32px;line-height:32px;margin:2px auto 0}
+.lab{display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--sub);padding:2px;background:var(--bg);}
+.cell{background:var(--bg);padding:2px;min-width:0;height:100%;}
+
+.card{height:100%;border:1.5px solid #0002;border-radius:8px;padding:4px 8px;cursor:pointer;overflow:hidden;position:relative;display:flex;flex-direction:column;gap:2px;}
+.card.warn{border-color:var(--warn);box-shadow:0 0 0 2px #d9302544}
+.card.warn::after{content:"！";position:absolute;right:6px;top:3px;color:var(--warn);font-weight:700}
+.card .t{font-weight:700;font-size:16px;line-height:1.2}
+.card .d{font-size:11px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#222;}
+.compact-card .t{font-size:16px;} .compact-card .d{display:none;}
+.empty{height:100%;border-radius:8px}
+
+.fab{position:absolute;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:16px;border:1.5px solid #0003;background:var(--acc);font-size:28px;cursor:pointer;box-shadow:0 3px 8px #0003;z-index:3;display:grid;place-items:center}
+.scrim{position:absolute;inset:0;background:#0006;z-index:10;opacity:0;pointer-events:none;transition:.2s}
+.scrim.on{opacity:1;pointer-events:auto}
+#drawer{position:absolute;top:0;bottom:0;left:0;width:min(320px,82%);background:var(--bar);border-radius:0 20px 20px 0;z-index:11;transform:translateX(-102%);transition:transform .22s;overflow:auto;padding:12px 12px calc(12px + env(safe-area-inset-bottom))}
+#drawer.on{transform:none}
+.logo{display:block;width:100%;height:auto;max-height:160px;object-fit:contain;margin:0 0 12px;background:#0ff;min-height:40px}
+.mi{display:flex;align-items:center;gap:16px;width:100%;border:0;background:none;padding:14px 16px;border-radius:28px;font-size:13px;color:var(--ink);cursor:pointer;text-align:left}
+.mi.on{background:var(--acc)}
+.mi svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8}
+hr{border:0;border-top:1px solid #0002;margin:6px 0}
+dialog{border:0;border-radius:20px;padding:0;width:min(94vw,640px);max-height:90vh;color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,0.3)}
+dialog::backdrop{background:#0006}
+.dlg{padding:18px;display:flex;flex-direction:column;gap:10px}
+.dlg h2{margin:0;font-size:18px}
+.dlg label{font-size:12px;color:var(--sub);display:flex;flex-direction:column;gap:3px}
+input,textarea,select{font:inherit;font-size:14px;padding:8px;border:1px solid #999;border-radius:8px;background:#fff;min-width:0;width:100%}
+.btns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px}
+.btn{border:0;border-radius:20px;padding:10px 18px;background:#1a73e8;color:#fff;font-size:14px;cursor:pointer}
+.btn.g{background:#e8eaf0;color:var(--ink)}.btn.r{background:#fce8e6;color:var(--warn)}
+.sw{display:flex;gap:6px;flex-wrap:wrap}.sw i{width:26px;height:26px;border-radius:50%;border:2px solid #666;cursor:pointer}.sw i.on{outline:3px solid #1a73e8}
+#classPickerWrap select{background:#fff;border:1px solid #c5c8d0;border-radius:10px;padding:9px 10px;font-size:13px;color:var(--ink)}
+#classPickerWrap select:focus{outline:2px solid #1a73e8;outline-offset:1px}
+#toast{position:absolute;left:50%;bottom:90px;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:20;display:none;max-width:90%}
+.mg{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:8px}
+.mg div{aspect-ratio:1;display:grid;place-items:center;border-radius:12px;cursor:pointer;font-size:14px;position:relative}
+.mg div:hover{background:var(--acc)}.mg .today{background:#1a73e8;color:#fff}
+.mg .dot{position:absolute;bottom:4px;width:4px;height:4px;background:#ea4335;border-radius:50%}
+.sch h3{margin:12px 14px 4px;font-size:14px;display:flex;justify-content:space-between;align-items:center}.sch p{margin:2px 18px;font-size:13px}
+
+.check-row { display: flex; align-items: center; gap: 9px; font-size: 13px; flex-direction: row !important; }
+.import-preview { width: 100%; max-height: 200px; object-fit: contain; background: #eee; border-radius: 8px; border: 1px solid #ccc; margin:8px 0; }
+.progress { height: 6px; background: #e8eaf0; border-radius: 99px; overflow: hidden; margin: 8px 0; }
+.progress > div { height: 100%; width: 0; background: #1a73e8; transition: width .15s; }
+.editor-table-wrap { overflow: auto; border: 1px solid #ccc; border-radius: 8px; max-height: 40vh; }
+.editor-table { border-collapse: collapse; width: 100%; min-width: 800px; font-size: 12px; }
+.editor-table th, .editor-table td { border-bottom: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
+.editor-table th { background: #f4f6fa; position: sticky; top: 0; z-index: 1; }
+.editor-table input, .editor-table select { width: 100%; border: 1px solid #ccc; border-radius: 4px; padding: 4px; font-size:12px; }
+.editor-table .remove-row { border: 0; background: transparent; color: var(--warn); font-size: 16px; cursor:pointer; }
+.slot-stack { display: flex; flex-direction: column; gap: 4px; }
+.import-details { display: grid; gap: 4px; }
+.import-details label { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 4px; flex-direction: row; }
+.muted { font-size: 12px; color: var(--sub); }
+.help { font-size: 11px; color: #666; margin-top:2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button class="ib" id="bMenu" aria-label="メニュー"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+    <button class="ib" id="bPrev" aria-label="前へ"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <button class="ib" id="bNext" aria-label="次へ"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+    <h1 id="ttl"><span id="ttlT">10月 ▾</span><input type="date" id="dp"></h1>
+    <button class="ib" id="bReload" aria-label="更新"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.4-3"/></svg></button>
+    <button class="ib" id="bToday" aria-label="今日"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><text x="12" y="16" font-size="9" text-anchor="middle" fill="currentColor" stroke="none" id="tdn">21</text></svg></button>
+    <button class="ib" id="bCheck" aria-label="持ち物・忘れ物"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg></button>
+    <div class="av" id="bSettings" title="設定">U</div>
+  </header>
+  <div id="main"></div>
+  <button class="fab" id="bAdd" aria-label="コマを追加">+</button>
+  <div class="scrim" id="scrim"></div>
+  <nav id="drawer">
+    <img class="logo" id="logo" alt="ロゴ">
+    <div id="classPickerWrap" style="padding:8px 10px 12px">
+      <label style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--sub)">
+        同期するクラス
+        <select id="classSelect" aria-label="同期するクラス"><option value="custom">カスタム（同期しない）</option></select>
+      </label>
+      <div id="classSyncStatus" class="muted" style="padding:5px 2px 0">Firebase未接続</div>
+    </div>
+    <button class="mi" data-v="schedule"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="1"/><rect x="4" y="14" width="16" height="6" rx="1"/></svg>スケジュール</button>
+    <button class="mi on" data-v="day"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1" fill="currentColor"/></svg>日</button>
+    <button class="mi" data-v="3day"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M9.5 5v14M14.5 5v14"/></svg>3日間</button>
+    <button class="mi" data-v="week"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 5v14M12 5v14M16 5v14"/></svg>週</button>
+    <button class="mi" data-v="month"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M12 4v16M4 12h16"/></svg>月</button>
+    <hr>
+    <button class="mi" id="mOcr"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>時間割読み込み</button>
+    <button class="mi" id="mSet"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>設定</button>
+    <div class="muted" style="padding:16px">データはブラウザに保存されます</div>
+  </nav>
+  <div id="toast"></div>
+</div>
+<input type="file" id="file" accept="image/*" hidden>
+<input type="file" id="jsonFile" accept="application/json,.json" hidden>
+<dialog id="dlg"></dialog>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+'use strict';
+
+/* ===== Data & Constants ===== */
+const STORAGE_KEY = 'timetable-integrated-v3'; 
+const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
+/* ===== Firebase / Gemini 接続設定 =====
+   Firebase Web config は公開情報です。認証を使わないため、Firestore Security Rules は公開アクセスを許可する設定になります。
+   クラス名は Firestore の classes コレクションの各ドキュメントに name として保存します。認証機能は使用しません。
+   Gemini APIキーはHTMLへ埋め込まず、Cloudflare WorkerのSecret GEM_APIを使用します。
+*/
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyC6CbskpDvmRTt7qzSTNyJC-Ui2VPis4fU',
+  authDomain: 'timetable-894.firebaseapp.com',
+  projectId: 'timetable-894',
+  storageBucket: 'timetable-894.firebasestorage.app',
+  messagingSenderId: '86547159658',
+  appId: '1:86547159658:web:481bc85ef64bf5f8418813',
+  measurementId: 'G-Z5T1YPESNJ'
+};
+const GEMINI_PROXY_URL = 'https://timetable-gem-api.timetableapp-info.workers.dev/api/timetable';
+
+/* ===== 教科別カラー定義エリア =====
+   教科名をキーにして色を指定します。未登録の教科は従来の色選択を使用します。
+   例: '国語': '#ffe0e0', '数学Ⅰ': '#e0eeff'
+*/
+const SUBJECT_COLORS = {
+  '国語': 'var(--c0)',
+  '数学Ⅰ': 'var(--c1)',
+  '数学': 'var(--c1)',
+  '英コミュⅠ': 'var(--c2)',
+  '英語': 'var(--c2)',
+  '地理総合': 'var(--c3)',
+  '生物基礎': 'var(--c4)',
+  '化学基礎': 'var(--c4)',
+  '体育': 'var(--c6)'
+};
+const GEMINI_MODELS = [
+  {value:'gemini-3.8-flash', label:'Gemini 3.8 Flash（高性能）'},
+  {value:'gemini-3.6-flash', label:'Gemini 3.6 Flash（推奨）'},
+  {value:'gemini-3.5-flash-lite', label:'Gemini 3.5 Flash-Lite（軽量）'}
+];
+
+const PERIODS = [['朝','朝'],['1','1'],['2','2'],['3','3'],['4','4'],['昼休み','昼休み'],['5','5'],['6','6'],['7','7'],['放課後','放課後']];
+const SLOTS = PERIODS.map(p=>p[0]);
+const SLOT_INDEX = Object.fromEntries(SLOTS.map((s,i)=>[s,i]));
+const DOW = ['日','月','火','水','木','金','土'];
+const COLORS = ['var(--c0)','var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)','var(--c6)','var(--c7)'];
+const COLOR_NAMES = ['ピンク','青','紫','オレンジ','緑','黄','グレー','水色'];
+
+const makeId = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+const dateKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const clone = value => JSON.parse(JSON.stringify(value));
+const $ = s => document.querySelector(s);
+const $$ = (s, root=document) => [...root.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+let state = {
+  events: [], 
+  view: 'day', 
+  selectedDate: dateKey(new Date()), 
+  settings: { logoUrl: LOGO_IMAGE_URL, geminiApiKey: '', geminiModel: DEFAULT_GEMINI_MODEL }
+};
+let ocrRunToken = 0;
+let importRows = [];
+let firebaseApp = null, firebaseDb = null;
+let firebaseClasses = [];
+let selectedClassId = localStorage.getItem('timetable-selected-class') || 'custom';
+let pendingShareContext = null;
+
+function addDays(d,n) { const x = new Date(d); x.setDate(x.getDate()+n); return x; }
+const sameDay = (a,b) => dateKey(a) === dateKey(b);
+function selectedDateObj() { const [y,m,d] = state.selectedDate.split('-').map(Number); return new Date(y,m-1,d); }
+
+function seedEvents() {
+  const mk = (slot,subject,colorIdx,items='',homework='',location='')=>({id:makeId(), dateKey:null, slot, endSlot:slot, subject, colorIdx, items, quiz:'', location, homework, notes:'', forgotten:'', allDay:false});
+  const lessons = [
+    mk('朝','朝練',6), mk('1','国語',0,'教科書、ノート','模試過去問'), mk('2','数学Ⅰ',1),
+    mk('3','英コミュⅠ',2), mk('4','地理総合',3), mk('5','生物基礎',4,'','','理科室'),
+    mk('6','化学基礎',4,'','','理科室'), mk('7','体育',6,'体育着','','体育館')
+  ];
+  
+  const now = new Date();
+  const mon = addDays(now, -((now.getDay()+6)%7)); 
+  return lessons.flatMap(lesson => [0,1,2,3,4].map(dayOffset => ({...lesson, id:makeId(), dateKey: dateKey(addDays(mon, dayOffset))})));
+}
+
+function persist() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (err) { console.warn(err); toast('保存容量の上限に達しました'); }
+}
+
+function subjectColor(subject, fallbackIdx=0) {
+  const key = String(subject || '').trim();
+  return Object.prototype.hasOwnProperty.call(SUBJECT_COLORS, key)
+    ? SUBJECT_COLORS[key]
+    : COLORS[(Number(fallbackIdx)||0) % COLORS.length];
+}
+
+function setSyncStatus(message) {
+  const el = $('#classSyncStatus');
+  if (el) el.textContent = message;
+}
+
+async function initFirebase() {
+  const configured = FIREBASE_CONFIG.apiKey !== 'YOUR_FIREBASE_WEB_API_KEY' &&
+    FIREBASE_CONFIG.projectId !== 'YOUR_PROJECT_ID' &&
+    FIREBASE_CONFIG.appId !== 'YOUR_FIREBASE_APP_ID';
+  if (!configured || !window.firebase) {
+    setSyncStatus('Firebase設定待ち');
+    return false;
+  }
+  try {
+    firebaseApp = firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+    firebaseDb = firebase.firestore();
+    await loadFirebaseClasses();
+    setSyncStatus('Firebase接続済み');
+    return true;
+  } catch (err) {
+    console.error('Firebase initialization failed:', err);
+    setSyncStatus('Firebase接続エラー: ' + (err.message || '設定を確認してください'));
+    return false;
+  }
+}
+
+async function loadFirebaseClasses() {
+  if (!firebaseDb) return;
+  const snap = await firebaseDb.collection('classes').orderBy('name').get();
+  firebaseClasses = snap.docs.map(doc => ({id:doc.id, name:doc.data().name || doc.id}));
+  const select = $('#classSelect');
+  const keep = selectedClassId;
+  select.innerHTML = '<option value="custom">カスタム（同期しない）</option>' +
+    firebaseClasses.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  if (firebaseClasses.some(c => c.id === keep)) select.value = keep;
+  else { selectedClassId = 'custom'; select.value = 'custom'; }
+  localStorage.setItem('timetable-selected-class', selectedClassId);
+}
+
+async function readClassSchedule(classId) {
+  if (!firebaseDb) throw new Error('Firebaseに接続されていません');
+  const ref = firebaseDb.collection('classes').doc(classId).collection('schedule').doc('current');
+  const snap = await ref.get();
+  if (!snap.exists) return [];
+  const data = snap.data();
+  return Array.isArray(data.events) ? data.events : [];
+}
+
+async function writeClassSchedule(classId, events) {
+  if (!firebaseDb) throw new Error('Firebaseに接続されていません');
+  const ref = firebaseDb.collection('classes').doc(classId).collection('schedule').doc('current');
+  await ref.set({
+    events: clone(events),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+async function syncFromFirebase(showMessage=true) {
+  if (selectedClassId === 'custom') {
+    if (showMessage) toast('カスタム時間割は同期されません');
+    return;
+  }
+  try {
+    setSyncStatus('同期データを取得中...');
+    const events = await readClassSchedule(selectedClassId);
+    state.events = events;
+    persist(); render();
+    setSyncStatus('同期済み: ' + (firebaseClasses.find(c=>c.id===selectedClassId)?.name || selectedClassId));
+    if (showMessage) toast('クラスの時間割を更新しました');
+  } catch (err) {
+    console.error(err);
+    setSyncStatus('同期失敗');
+    if (showMessage) toast('同期できませんでした: ' + err.message, 5000);
+  }
+}
+
+function askShareToClass(defaultClassId=selectedClassId, onComplete=null) {
+  if (!firebaseDb || !firebaseClasses.length) {
+    if (onComplete) onComplete(false);
+    return;
+  }
+  const options = firebaseClasses.map(c =>
+    `<option value="${esc(c.id)}" ${c.id===defaultClassId?'selected':''}>${esc(c.name)}</option>`
+  ).join('');
+  openModal('クラスに変更を共有しますか？', `
+    <p style="font-size:13px;margin:0">変更内容をクラスの時間割に反映します。共有しない場合は、この端末内だけに保存されます。</p>
+    <label>共有先クラス<select id="shareClass">${options}</select></label>
+    <div class="btns">
+      <button class="btn g" id="shareNo">共有しない</button>
+      <button class="btn" id="shareYes">共有する</button>
+    </div>`);
+  const dlg = $('#dlg');
+  dlg.querySelector('#shareNo').onclick = () => { closeModal(); if(onComplete) onComplete(false); };
+  dlg.querySelector('#shareYes').onclick = async () => {
+    const classId = dlg.querySelector('#shareClass').value;
+    const btn = dlg.querySelector('#shareYes'); btn.disabled = true; btn.textContent = '共有中...';
+    try {
+      await writeClassSchedule(classId, state.events);
+      selectedClassId = classId;
+      $('#classSelect').value = classId;
+      localStorage.setItem('timetable-selected-class', classId);
+      setSyncStatus('共有済み: ' + (firebaseClasses.find(c=>c.id===classId)?.name || classId));
+      closeModal(); toast('クラスに共有しました');
+      if(onComplete) onComplete(true);
+    } catch(err) {
+      console.error(err); btn.disabled = false; btn.textContent = '共有する';
+      toast('共有に失敗しました: ' + err.message, 5000);
+    }
+  };
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) {
+      const parsed = JSON.parse(raw);
+      if(parsed && Array.isArray(parsed.events)) {
+        const now = new Date();
+        const mon = addDays(now, -((now.getDay()+6)%7));
+        parsed.events = parsed.events.map(e => {
+            if (!e.dateKey && e.weekday != null) {
+                e.dateKey = dateKey(addDays(mon, e.weekday - 1));
+                delete e.weekday;
+            }
+            return e;
+        });
+        state = {...state, ...parsed, settings:{...state.settings, ...(parsed.settings||{})}};
+        return;
+      }
+    }
+  } catch(e) {}
+  state.events = seedEvents();
+}
+
+function toast(t, ms=2600) { 
+  const e=$('#toast'); e.textContent=t; e.style.display='block'; 
+  clearTimeout(toast.t); toast.t=setTimeout(()=>e.style.display='none',ms); 
+}
+
+function sameDayEvents(date) {
+  const dStr = dateKey(date);
+  return state.events.filter(e => e.dateKey === dStr)
+                     .sort((a,b)=>(SLOT_INDEX[a.slot]??0)-(SLOT_INDEX[b.slot]??0));
+}
+function eventSpan(e) { return e.allDay ? SLOTS.length : Math.max(1, (SLOT_INDEX[e.endSlot]??SLOT_INDEX[e.slot]??0) - (SLOT_INDEX[e.slot]??0) + 1); }
+
+/* ===== 描画 (Flexible Grid) ===== */
+function cardHtml(c, isCompact=false) {
+  if(!c) return `<div class="empty"></div>`;
+  const alert = c.notes || c.forgotten;
+  const lines = [c.location&&`所:${c.location}`, c.items&&`持:${c.items}`, c.homework&&`宿:${c.homework}`, c.quiz&&`小:${c.quiz}`, c.forgotten&&`忘:${c.forgotten}`, c.notes&&`備:${c.notes}`].filter(Boolean);
+  const htmlLines = isCompact ? '' : lines.map(l=>`<div class="d">${esc(l)}</div>`).join('');
+  
+  return `<div class="card ${isCompact?'compact-card':''} ${alert?'warn':''}" data-id="${esc(c.id)}" style="background:${subjectColor(c.subject,c.colorIdx)};">
+    <div class="t">${esc(c.subject)}</div>
+    ${htmlLines}
+  </div>`;
+}
+
+function renderGrid(nDays) {
+  const base = selectedDateObj();
+  let days = [];
+  if(nDays === 7) { 
+    const mon = addDays(base, -((base.getDay()+6)%7)); 
+    for(let i=0;i<5;i++) days.push(addDays(mon,i)); 
+  } else {
+    for(let i=0;i<nDays;i++) days.push(addDays(base,i));
+  }
+  
+  const g = `grid-template-columns:44px repeat(${days.length}, minmax(0, 1fr))`;
+  // grid-template-rows に repeat(SLOTS.length, 1fr) を設定し、高さを flex: 1 で最大化する
+  let h = `<div style="display:grid; ${g}; grid-template-rows: auto repeat(${SLOTS.length}, 1fr); gap:1px; background:var(--line); flex:1; min-height:500px;">`;
+  
+  h += `<div style="background:var(--bg);position:sticky;top:0;z-index:2"></div>`;
+  days.forEach(dx => {
+    h += `<div class="hd ${sameDay(dx,new Date())?'today':''}"><b>${dx.getDate()}</b>${DOW[dx.getDay()]}</div>`;
+  });
+  
+  const skip = days.map(() => 0);
+  
+  SLOTS.forEach((slot, rIdx) => {
+    const label = PERIODS.find(p=>p[0]===slot)[1];
+    h += `<div class="lab">${label}</div>`;
+    
+    days.forEach((dx, cIdx) => {
+      if (skip[cIdx] > 0) {
+        skip[cIdx]--;
+        return; 
+      }
+      
+      const events = sameDayEvents(dx);
+      const e = events.find(ev => ev.allDay ? slot === '朝' : ev.slot === slot);
+      
+      if (e) {
+        const span = eventSpan(e);
+        if (span > 1) skip[cIdx] = span - 1;
+        const st = span > 1 ? `grid-row: span ${span};` : '';
+        h += `<div class="cell" style="${st}">${cardHtml(e, nDays > 1)}</div>`;
+      } else {
+        h += `<div class="cell" data-d="${dateKey(dx)}" data-p="${slot}" data-empty="1"><div class="empty"></div></div>`;
+      }
+    });
+  });
+  
+  h += `</div>`;
+  if (nDays === 1 && sameDayEvents(days[0]).length === 0) {
+    h = `<div style="padding:40px 20px;text-align:center;color:var(--sub)">予定はありません<br><br>右下の「＋」から追加できます</div>` + h;
+  }
+  $('#main').innerHTML = h;
+}
+
+function renderMonth() {
+  const d = selectedDateObj();
+  const y = d.getFullYear(), mo = d.getMonth(), first = new Date(y,mo,1), last = new Date(y,mo+1,0);
+  let h = `<div class="mg" style="flex:1;">` + DOW.map(x=>`<span style="text-align:center;font-size:12px;color:var(--sub)">${x}</span>`).join('') + '<span></span>'.repeat(0);
+  h += '<div style="visibility:hidden"></div>'.repeat(first.getDay());
+  
+  for(let i=1; i<=last.getDate(); i++){ 
+    const x = new Date(y,mo,i);
+    const count = sameDayEvents(x).length;
+    h += `<div data-d="${dateKey(x)}" class="${sameDay(x,new Date())?'today':''}">${i}${count?`<div class="dot"></div>`:''}</div>`; 
+  }
+  $('#main').innerHTML = h + '</div>';
+}
+
+function renderSchedule() {
+  const d = selectedDateObj();
+  const mon = addDays(d, -((d.getDay()+6)%7)); 
+  let h = '<div class="sch" style="flex:1;">';
+  for(let i=0;i<7;i++){ 
+    const x = addDays(mon,i);
+    const evs = sameDayEvents(x);
+    if(i>=5 && !evs.length) continue; 
+    h += `<h3><span>${x.getMonth()+1}/${x.getDate()}（${DOW[x.getDay()]}）</span></h3>`;
+    if(!evs.length) h += `<p class="muted">予定なし</p>`;
+    evs.forEach(e => {
+      const label = e.allDay ? '終日' : PERIODS.find(p=>p[0]===e.slot)[1];
+      h += `<p data-id="${e.id}" style="cursor:pointer">${label} ${esc(e.subject)}${e.notes||e.forgotten?' ⚠':''}</p>`;
+    });
+  }
+  $('#main').innerHTML = h + '</div>';
+}
+
+function render() {
+  const d = selectedDateObj();
+  $('#ttlT').textContent = `${d.getMonth()+1}月 ▾`; 
+  $('#dp').value = state.selectedDate; 
+  $('#tdn').textContent = new Date().getDate();
+  document.querySelectorAll('.mi[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === state.view));
+  $('#bAdd').style.display = (state.view==='month'||state.view==='schedule') ? 'none' : '';
+  
+  if(state.view === 'day') renderGrid(1);
+  else if(state.view === '3day') renderGrid(3);
+  else if(state.view === 'week') renderGrid(7);
+  else if(state.view === 'month') renderMonth();
+  else if(state.view === 'schedule') renderSchedule();
+  persist();
+}
+
+/* ===== Dialog & Forms ===== */
+function openModal(title, body) {
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<div class="dlg"><h2>${esc(title)}</h2>${body}</div>`;
+  dlg.showModal();
+}
+function closeModal() { $('#dlg').close(); }
+
+function openEventEditor(id=null, defaultSlot=null, defaultDateKey=null) {
+  const existing = id ? state.events.find(e=>e.id===id) : null;
+  const targetDate = defaultDateKey || state.selectedDate;
+  const e = existing ? clone(existing) : {
+    id: makeId(), dateKey: targetDate, 
+    slot: defaultSlot||'1', endSlot: defaultSlot||'1', subject:'', colorIdx:0, 
+    items:'', quiz:'', location:'', homework:'', notes:'', forgotten:'', allDay:false
+  };
+  
+  const slotOpts = SLOTS.map(s=>`<option value="${s}" ${e.slot===s?'selected':''}>${PERIODS.find(p=>p[0]===s)[1]}</option>`).join('');
+  const endSlotOpts = SLOTS.map(s=>`<option value="${s}" ${e.endSlot===s?'selected':''}>${PERIODS.find(p=>p[0]===s)[1]}</option>`).join('');
+  
+  const body = `
+  <label>教科・予定名<input id="f_s" value="${esc(e.subject)}"></label>
+  <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;">
+    <label>日付<input type="date" id="f_d" value="${e.dateKey}"></label>
+    <label class="check-row" style="margin-bottom:8px;"><input type="checkbox" id="f_a" ${e.allDay?'checked':''}>終日予定</label>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <label>開始コマ<select id="f_sl">${slotOpts}</select></label>
+    <label>終了コマ<select id="f_es">${endSlotOpts}</select></label>
+  </div>
+  <label>色<div class="sw" id="f_c">${COLORS.map((c,i)=>`<i data-i="${i}" style="background:${c}" class="${i===e.colorIdx?'on':''}" title="${COLOR_NAMES[i]}"></i>`).join('')}</div></label>
+  <label>持ち物<input id="f_i" value="${esc(e.items)}"></label>
+  <label>宿題<input id="f_h" value="${esc(e.homework)}"></label>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <label>小テスト<input id="f_q" value="${esc(e.quiz)}"></label>
+    <label>場所<input id="f_p" value="${esc(e.location)}"></label>
+  </div>
+  <label>忘れ物（警告表示）<input id="f_fg" value="${esc(e.forgotten)}"></label>
+  <label>備考<textarea id="f_n" rows="2">${esc(e.notes)}</textarea></label>
+  <div class="btns">
+    ${existing ? `<button type="button" class="btn r" id="f_del">削除</button>` : ''}
+    <button type="button" class="btn g" id="f_x">閉じる</button>
+    <button type="button" class="btn" id="f_ok">保存</button>
+  </div>`;
+  
+  openModal(existing?'予定を編集':'予定を追加', body);
+  const dlg = $('#dlg');
+  
+  let col = e.colorIdx;
+  dlg.querySelector('#f_c').onclick = ev => { const i = ev.target.dataset.i; if(i==null) return; col=+i; dlg.querySelectorAll('#f_c i').forEach(x=>x.classList.toggle('on',+x.dataset.i===col)); };
+  dlg.querySelector('#f_x').onclick = closeModal;
+  if(existing) dlg.querySelector('#f_del').onclick = () => { if(confirm('削除しますか？')){ state.events = state.events.filter(x=>x.id!==id); render(); closeModal(); toast('削除しました'); askShareToClass(); }};
+  
+  dlg.querySelector('#f_ok').onclick = () => {
+    const v = k => dlg.querySelector('#f_'+k).value.trim();
+    const sub = v('s'); if(!sub) { toast('教科名を入力してください'); return; }
+    const dVal = v('d'); if(!dVal) { toast('日付を選択してください'); return; }
+    
+    let sl = v('sl'), esl = v('es'), allDay = dlg.querySelector('#f_a').checked;
+    if(allDay) { sl = '朝'; esl = '放課後'; }
+    if((SLOT_INDEX[esl]??0) < (SLOT_INDEX[sl]??0)) esl = sl;
+    
+    const updated = {
+      id: e.id, dateKey: dVal,
+      slot: sl, endSlot: esl, subject: sub, colorIdx: col,
+      items: v('i'), quiz: v('q'), location: v('p'), homework: v('h'), notes: v('n'), forgotten: v('fg'),
+      allDay
+    };
+    
+    if(existing) state.events = state.events.map(x=>x.id===id?updated:x);
+    else state.events.push(updated);
+    
+    render(); closeModal(); toast('保存しました');
+    askShareToClass();
+  };
+}
+
+/* ===== Settings & IO ===== */
+function openSettings() {
+  const body = `
+  <label>Gemini APIキー（任意・手動設定時のみ使用）<input id="s_k" type="password" value="${esc(state.settings.geminiApiKey)}" placeholder="未入力ならCloudflare WorkerのGEM_APIを使用"></label>
+  <p class="help">通常はAPIキーを入力しません。Cloudflare Worker側のSecret GEM_APIを使用します。手動入力したキーはこの端末のブラウザ内に保存されます。</p>
+  <label>画像解析モデル<select id="s_m">${GEMINI_MODELS.map(m=>`<option value="${m.value}" ${state.settings.geminiModel===m.value?'selected':''}>${m.label}</option>`).join('')}</select></label>
+  <label>ロゴ画像URL<input id="s_l" type="url" value="${esc(state.settings.logoUrl)}"></label>
+  <hr>
+  <div class="btns" style="justify-content:flex-start">
+    <button class="btn g" id="s_exp">JSON書出</button>
+    <button class="btn g" id="s_imp">JSON読込</button>
+    <button class="btn g" id="s_shr">共有URL</button>
+  </div>
+  <div class="btns"><button class="btn g" id="s_x">閉じる</button><button class="btn" id="s_ok">保存</button></div>`;
+  
+  openModal('設定', body);
+  const dlg = $('#dlg');
+  dlg.querySelector('#s_x').onclick = closeModal;
+  dlg.querySelector('#s_exp').onclick = exportJson;
+  dlg.querySelector('#s_imp').onclick = () => $('#jsonFile').click();
+  dlg.querySelector('#s_shr').onclick = share;
+  dlg.querySelector('#s_ok').onclick = () => {
+    state.settings.geminiApiKey = dlg.querySelector('#s_k').value.trim();
+    state.settings.geminiModel = dlg.querySelector('#s_m').value;
+    state.settings.logoUrl = dlg.querySelector('#s_l').value.trim() || LOGO_IMAGE_URL;
+    applyLogo(); persist(); closeModal(); toast('設定を保存しました');
+  };
+}
+
+function applyLogo() {
+  const img = $('#logo'), url = state.settings.logoUrl;
+  if(url && !url.endsWith('/xxx.png')) { img.src = url; img.style.display='block'; }
+  else { img.style.display='none'; }
+}
+
+function exportJson() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `timetable-${dateKey(new Date())}.json`;
+  a.click(); URL.revokeObjectURL(url); toast('JSONを保存しました');
+}
+
+$('#jsonFile').onchange = e => {
+  const f = e.target.files[0]; e.target.value=''; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(r.result);
+      if(data && Array.isArray(data.events)) {
+        if(confirm('現在の時間割を置き換えますか？')) {
+          state = {...state, ...data}; persist(); applyLogo(); render(); closeModal(); toast('読み込みました'); askShareToClass();
+        }
+      } else throw new Error();
+    } catch { toast('不正なJSONファイルです'); }
+  };
+  r.readAsText(f);
+};
+
+const b64e = o => btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const b64d = s => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/')))));
+
+async function share() {
+  const payload = {events: state.events};
+  const url = location.href.split('?')[0] + '?s=' + b64e(payload);
+  try{ if(navigator.share){ await navigator.share({title:'時間割',url}); return; } await navigator.clipboard.writeText(url); toast('共有URLをコピーしました'); }
+  catch{ prompt('共有URL (コピーしてください)', url); }
+}
+
+function checkIncoming(){
+  const s = new URLSearchParams(location.search).get('s'); if(!s) return;
+  try{
+    const inc = b64d(s);
+    if(inc && Array.isArray(inc.events)) {
+      openModal('共有された時間割', `<p>取り込みますか？（既存の予定に追加されます）</p><div class="btns"><button class="btn g" id="i_x">キャンセル</button><button class="btn" id="i_ok">取り込む</button></div>`);
+      const dlg = $('#dlg');
+      dlg.querySelector('#i_x').onclick = () => { history.replaceState(null,'',location.pathname); closeModal(); };
+      dlg.querySelector('#i_ok').onclick = () => { 
+        const imported = inc.events.map(e=>({...e, id:makeId()}));
+        state.events.push(...imported); persist(); render(); history.replaceState(null,'',location.pathname); closeModal(); toast('取り込みました'); askShareToClass(); 
+      };
+    }
+  }catch{ toast('URLを読み取れませんでした'); }
+}
+
+/* ===== OCR / Gemini Import ===== */
+function prepareGeminiImage(file) {
+  return new Promise((resolve,reject)=>{
+    const objectUrl=URL.createObjectURL(file); const image=new Image();
+    image.onload=()=>{
+      try {
+        const maxSide=2000, scale=Math.min(1,maxSide/Math.max(image.naturalWidth,image.naturalHeight));
+        const canvas=document.createElement('canvas'); canvas.width=Math.max(1,Math.round(image.naturalWidth*scale)); canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+        const ctx=canvas.getContext('2d'); ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+        const dataUrl=canvas.toDataURL('image/jpeg',0.9); URL.revokeObjectURL(objectUrl);
+        resolve({preview:dataUrl,mimeType:'image/jpeg',base64:dataUrl.split(',')[1]});
+      } catch(e){URL.revokeObjectURL(objectUrl);reject(e);}
+    };
+    image.onerror=reject; image.src=objectUrl;
+  });
+}
+
+function mapGeminiSlot(v, fb='1') {
+  const s = String(v||'').replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/限|目/g,'');
+  if(SLOTS.includes(s)) return s;
+  if(/朝/.test(s)) return '朝'; if(/昼/.test(s)) return '昼休み'; if(/放課/.test(s)) return '放課後';
+  const m = s.match(/[1-7]/); return m ? m[0] : fb;
+}
+
+// 簡易OCR（Tesseract.js）
+async function loadScript(src){ return new Promise((ok,ng)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=ng; document.head.appendChild(s); }); }
+async function runTesseractOCR(file, previewUrl) {
+  const token = ocrRunToken;
+  $('#ocrP').src = previewUrl;
+  $('#dlg').querySelector('.muted').textContent = 'Tesseract.js を読み込んでいます...';
+  try {
+    if(!window.Tesseract) await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+    if(token !== ocrRunToken) return;
+    
+    $('#dlg').querySelector('.muted').textContent = '画像を文字認識中...';
+    const { data:{ text } } = await Tesseract.recognize(file, 'jpn', {
+      logger: m => {
+        if(m.status === 'recognizing text' && m.progress && $('#ocrProg')) {
+          $('#ocrProg').style.width = `${Math.round(m.progress * 100)}%`;
+        }
+      }
+    });
+    
+    if(token !== ocrRunToken) return;
+    
+    const lines=text.split(/\r?\n/).map(s=>s.replace(/\s+/g,'')).filter(s=>s.length>0&&s.length<20);
+    let period=1;
+    importRows = [];
+    lines.forEach((line) => {
+       if(/^(月|火|水|木|金|土|日|曜)/.test(line)) return; 
+       importRows.push({
+         date: state.selectedDate, 
+         slot: String(Math.min(7, period)),
+         endSlot: String(Math.min(7, period)),
+         subject: line.replace(/^[・:：\-]+/,''),
+         items:'', location:'', notes:'', homework:'', quiz:'', forgotten:'', allDay:false
+       });
+       period++; if(period>7) period=1;
+    });
+    showImportEditor(previewUrl);
+    toast('簡易OCR結果です。設定でGemini APIキーを登録すると精度が大幅に上がります。', 6000);
+
+  } catch(e) {
+    if(token === ocrRunToken) {
+      $('#dlg').querySelector('.muted').textContent = 'Tesseractエラー: ' + e.message;
+      $('#dlg').innerHTML += `<div class="btns"><button class="btn g" onclick="closeModal()">閉じる</button></div>`;
+    }
+  }
+}
+
+async function runOCR(file) {
+  const apiKey = state.settings.geminiApiKey;
+  const token = ++ocrRunToken;
+  
+  openModal('解析中...', `<img class="import-preview" id="ocrP"><div class="progress"><div id="ocrProg" style="width:10%"></div></div><p class="muted">画像を準備しています...</p>`);
+  
+  try {
+    const img = await prepareGeminiImage(file);
+    if(token !== ocrRunToken) return;
+    
+    if(!apiKey) {
+      return runTesseractOCR(file, img.preview);
+    }
+    
+    $('#ocrP').src = img.preview;
+    $('#ocrProg').style.width = '50%';
+    $('#dlg').querySelector('.muted').textContent = 'Geminiで画像を解析しています...';
+    
+    const base = selectedDateObj();
+    const mon = addDays(base, -((base.getDay()+6)%7));
+    const year = base.getFullYear();
+
+    const prompt = `あなたは学校時間割画像を構造化データへ変換する専門家です。
+画像から全ての日付とコマの情報を抽出し、JSONで出力してください。
+基準となる週の月曜日は ${dateKey(mon)} です。
+画像内に日付(例: 10/26, 2日)がある場合は、${year}年のその日付(YYYY-MM-DD)に正確に変換してください。
+曜日しか書かれていない場合は、基準となる週の該当する日付に割り当ててください。
+結合セルはallDay=trueまたはslotとendSlotで表現してください。
+JSON出力形式:
+{"lessons":[{"date":"2026-10-26","slot":"1","endSlot":"1","subject":"国語","location":"","items":"","homework":"","quiz":"","notes":"","forgotten":"","allDay":false}]}
+マークダウンや余計なテキストは含めないでください。`;
+    
+    const requestBody = {
+      model: state.settings.geminiModel,
+      prompt,
+      image: { mimeType: img.mimeType, data: img.base64 }
+    };
+    // 手動APIキーが入力されている場合のみ直接APIを使用。未入力時はWorker Secret GEM_APIを使用。
+    const requestUrl = apiKey
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${state.settings.geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`
+      : GEMINI_PROXY_URL;
+    const requestPayload = apiKey ? {
+      contents: [{parts:[{text:prompt},{inlineData:{mimeType:img.mimeType,data:img.base64}}]}],
+      generationConfig: {responseMimeType:'application/json'}
+    } : requestBody;
+    const res = await fetch(requestUrl, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(requestPayload)
+    });
+    
+    const payload = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(payload?.error?.message || `HTTP Error ${res.status}`);
+    
+    const text = (payload?.candidates?.[0]?.content?.parts||[]).map(p=>p.text).join('') || payload?.text || payload?.result || '';
+    if(!text) throw new Error('Geminiからの応答が空でした。');
+    
+    const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] || text;
+    const parsed = JSON.parse(jsonStr);
+    
+    importRows = (parsed.lessons||[]).map(r => {
+      let sl = mapGeminiSlot(r.slot); let esl = mapGeminiSlot(r.endSlot, sl);
+      if(r.allDay) { sl='朝'; esl='放課後'; }
+      if((SLOT_INDEX[esl]??0) < (SLOT_INDEX[sl]??0)) esl = sl;
+      
+      let d = r.date || state.selectedDate;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) d = state.selectedDate;
+
+      return {
+        date: d, slot:sl, endSlot:esl, subject:(r.subject||'').toString(),
+        items:(r.items||'').toString(), location:(r.location||'').toString(), notes:(r.notes||'').toString(), 
+        homework:(r.homework||'').toString(), quiz:(r.quiz||'').toString(), forgotten:(r.forgotten||'').toString(), allDay:!!r.allDay
+      };
+    }).filter(r=>r.subject);
+    
+    if(importRows.length === 0) throw new Error('教科を検出できませんでした。');
+    
+    showImportEditor(img.preview);
+  } catch(e) {
+    console.error(e);
+    if(token === ocrRunToken) {
+      $('#dlg').querySelector('.muted').textContent = 'エラー: ' + e.message;
+      $('#dlg').innerHTML += `<div class="btns">
+        <button class="btn" id="btnFallback">Tesseractで再試行</button>
+        <button class="btn g" onclick="closeModal()">閉じる</button>
+      </div>`;
+      const fallbackBtn = document.getElementById('btnFallback');
+      if(fallbackBtn) fallbackBtn.onclick = () => runTesseractOCR(file, URL.createObjectURL(file));
+    }
+  }
+}
+
+function showImportEditor(preview) {
+  const slOpts = (v) => SLOTS.map(s=>`<option value="${s}" ${v===s?'selected':''}>${PERIODS.find(p=>p[0]===s)[1]}</option>`).join('');
+  
+  const trs = importRows.map((r,i) => `<tr>
+    <td><input type="date" style="width:115px;padding:4px;font-size:11px;" data-i="${i}" data-k="date" value="${esc(r.date)}"></td>
+    <td><div class="slot-stack"><select data-i="${i}" data-k="slot">${slOpts(r.slot)}</select><select data-i="${i}" data-k="endSlot">${slOpts(r.endSlot)}</select></div></td>
+    <td><input data-i="${i}" data-k="subject" value="${esc(r.subject)}"></td>
+    <td><div class="import-details">
+      <label>持<input data-i="${i}" data-k="items" value="${esc(r.items)}"></label>
+      <label>宿<input data-i="${i}" data-k="homework" value="${esc(r.homework)}"></label>
+      <label>所<input data-i="${i}" data-k="location" value="${esc(r.location)}"></label>
+      <label>小<input data-i="${i}" data-k="quiz" value="${esc(r.quiz)}"></label>
+      <label>備<input data-i="${i}" data-k="notes" value="${esc(r.notes)}"></label>
+    </div></td>
+    <td><button class="remove-row" data-rm="${i}">×</button></td>
+  </tr>`).join('');
+
+  const body = `
+  <p class="help">誤りや日付ずれがあれば修正してください。</p>
+  <img class="import-preview" src="${preview}">
+  <div class="editor-table-wrap"><table class="editor-table">
+    <thead><tr><th>日付</th><th>コマ</th><th>教科名</th><th>詳細</th><th></th></tr></thead>
+    <tbody id="iBody">${trs}</tbody>
+  </table></div>
+  <label class="check-row" style="margin: 12px 0 4px;"><input type="checkbox" id="i_replace" checked> 読み込んだ日付にある既存の予定を削除して上書きする</label>
+  <div class="btns">
+    <button class="btn g" id="i_add">行を追加</button>
+    <button class="btn g" id="i_x">キャンセル</button>
+    <button class="btn" id="i_ok">登録 (${importRows.length}件)</button>
+  </div>`;
+  
+  openModal('読み込み結果の確認', body);
+  const dlg = $('#dlg');
+  
+  const bindEvents = () => {
+    dlg.querySelectorAll('[data-k]').forEach(el => {
+      el.onchange = () => { importRows[el.dataset.i][el.dataset.k] = el.value; };
+    });
+    dlg.querySelectorAll('[data-rm]').forEach(el => {
+      el.onclick = () => { importRows.splice(el.dataset.rm, 1); showImportEditor(preview); };
+    });
+  };
+  bindEvents();
+  
+  dlg.querySelector('#i_add').onclick = () => {
+    importRows.push({ date:state.selectedDate, slot:'1', endSlot:'1', subject:'', items:'', location:'', homework:'', quiz:'', notes:'', forgotten:'', allDay:false });
+    showImportEditor(preview);
+  };
+  dlg.querySelector('#i_x').onclick = closeModal;
+  
+  dlg.querySelector('#i_ok').onclick = () => {
+    const replace = dlg.querySelector('#i_replace').checked;
+    if (replace) {
+      const importedDates = new Set(importRows.map(r => r.date));
+      state.events = state.events.filter(e => !importedDates.has(e.dateKey));
+    }
+    
+    let addedCount = 0;
+    importRows.forEach(r => {
+      const sub = (r.subject || '').toString().trim();
+      const d = r.date || state.selectedDate;
+      if(!sub) return; 
+      state.events.push({
+        id: makeId(), dateKey: d,
+        slot: r.slot, endSlot: r.endSlot, subject: sub,
+        colorIdx: (SLOT_INDEX[r.slot]||0)%COLORS.length, items: r.items, location: r.location,
+        quiz: r.quiz, homework: r.homework, notes: r.notes, forgotten: r.forgotten || '', allDay:r.allDay
+      });
+      addedCount++;
+    });
+    
+    if (addedCount > 0) {
+      state.selectedDate = importRows[0].date;
+      state.view = 'week';
+    }
+    
+    persist(); render(); closeModal(); toast(`${addedCount}件登録しました`);
+    if (addedCount > 0) askShareToClass();
+  };
+}
+
+/* ===== Events & Navigation ===== */
+function moveDate(dir) {
+  const step = state.view==='week'?7:state.view==='3day'?3:state.view==='month'?30:1;
+  if (state.view === 'month') {
+    const d = selectedDateObj();
+    d.setMonth(d.getMonth() + dir);
+    state.selectedDate = dateKey(d);
+  } else if (state.view === 'schedule') {
+    state.selectedDate = dateKey(addDays(selectedDateObj(), dir * 7));
+  } else {
+    state.selectedDate = dateKey(addDays(selectedDateObj(), dir * step));
+  }
+  render();
+}
+
+$('#bPrev').onclick = () => moveDate(-1);
+$('#bNext').onclick = () => moveDate(1);
+
+const drawer = on => { $('#drawer').classList.toggle('on',on); $('#scrim').classList.toggle('on',on); };
+$('#bMenu').onclick = () => drawer(true);
+$('#scrim').onclick = () => drawer(false);
+document.querySelectorAll('.mi[data-v]').forEach(b => b.onclick = () => { state.view = b.dataset.v; drawer(false); render(); });
+$('#mSet').onclick = () => { drawer(false); openSettings(); };
+$('#bSettings').onclick = openSettings;
+
+$('#bToday').onclick = () => { state.selectedDate = dateKey(new Date()); render(); };
+$('#dp').onchange = e => { if(e.target.value){ state.selectedDate = e.target.value; render(); } };
+
+$('#mOcr').onclick = () => { drawer(false); $('#file').click(); };
+$('#file').onchange = e => { const f = e.target.files[0]; e.target.value=''; if(f) runOCR(f); };
+
+$('#bAdd').onclick = () => openEventEditor();
+
+$('#main').onclick = e => {
+  const card = e.target.closest('.card');
+  if(card) return openEventEditor(card.dataset.id);
+  const empty = e.target.closest('[data-empty]');
+  if(empty) return openEventEditor(null, empty.dataset.p, empty.dataset.d || state.selectedDate);
+  const p = e.target.closest('p[data-id]');
+  if(p) return openEventEditor(p.dataset.id);
+};
+
+$('#bCheck').onclick = () => {
+  const tmr = addDays(new Date(),1);
+  const evs = sameDayEvents(tmr);
+  const alerts = evs.filter(e=>e.notes||e.forgotten).map(e=>`${e.subject}: ${e.forgotten||e.notes}`);
+  const items = [...new Set(evs.flatMap(e=>(e.items||'').split(/[、, ]/).filter(Boolean)))];
+  toast(evs.length ? `明日の持ち物: ${items.join('、')||'なし'}${alerts.length?'\n⚠ '+alerts.join(' / '):''}` : '明日の予定はありません', 6000);
+};
+
+$('#bReload').onclick = async () => {
+  if (selectedClassId === 'custom') { toast('カスタム時間割は同期されません'); return; }
+  await syncFromFirebase(true);
+};
+
+$('#classSelect').onchange = async e => {
+  selectedClassId = e.target.value || 'custom';
+  localStorage.setItem('timetable-selected-class', selectedClassId);
+  if (selectedClassId === 'custom') {
+    setSyncStatus('カスタム（同期しない）');
+    toast('カスタム時間割に切り替えました');
+  } else {
+    await syncFromFirebase(true);
+  }
+};
+
+let sx = 0;
+$('#main').addEventListener('touchstart', e => sx = e.touches[0].clientX, {passive:true});
+$('#main').addEventListener('touchend', e => { 
+  const dx = e.changedTouches[0].clientX - sx; 
+  if(Math.abs(dx) > 80 && ['day','3day','week','month','schedule'].includes(state.view)){ 
+    moveDate(dx < 0 ? 1 : -1);
+  } 
+});
+
+/* ===== Init ===== */
+const icon = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#1a73e8"/><text x="96" y="124" font-size="90" text-anchor="middle" fill="#fff">時</text></svg>');
+$('#mf').href = URL.createObjectURL(new Blob([JSON.stringify({name:'時間割',short_name:'時間割',display:'standalone',start_url:location.pathname,background_color:'#eceef3',theme_color:'#eceef3',icons:[{src:icon,sizes:'192x192',type:'image/svg+xml',purpose:'any'}]})],{type:'application/manifest+json'}));
+
+load();
+applyLogo();
+render();
+checkIncoming();
+initFirebase().then(connected => {
+  if (connected && selectedClassId !== 'custom') syncFromFirebase(false);
+});
+
+</script>
+</body>
+</html>
