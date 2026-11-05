@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "timetable-gem-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-05",
+  "vars": {},
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "timetable-push",
+      "database_id": "ここにCloudflareのDatabase IDを入力"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}
