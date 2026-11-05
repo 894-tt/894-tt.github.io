@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "timetable-push",
-      "database_id": "ここにCloudflareのDatabase IDを入力"
+      "database_id": "9976bf56-110c-486e-8cdc-8c368b5994d4"
     }
   ],
   "triggers": {
