@@ -3,6 +3,7 @@
   "name": "timetable-gem-api",
   "main": "worker.js",
   "compatibility_date": "2026-11-05",
+　"keep_vars": true,
   "vars": {},
   "d1_databases": [
     {
