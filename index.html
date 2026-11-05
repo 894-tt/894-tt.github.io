@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#eceef3">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>時間割ノート</title>
-<link rel="manifest" id="mf">
+<link rel="manifest" href="./manifest.webmanifest">
 <script>
 /* ▼ ロゴ画像（Imgur）をここで指定 */
 const LOGO_IMAGE_URL = 'https://i.imgur.com/xxx.png';
@@ -129,6 +130,7 @@ input,textarea,select{font:inherit;font-size:14px;padding:8px;border:1px solid #
     <button class="mi" data-v="month"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M12 4v16M4 12h16"/></svg>月</button>
     <hr>
     <button class="mi" id="mOcr"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>時間割読み込み</button>
+    <button class="mi" id="mNotify"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>通知設定</button>
     <button class="mi" id="mSet"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>設定</button>
     <div class="muted" style="padding:16px">データはブラウザに保存されます</div>
   </nav>
@@ -163,20 +165,29 @@ const FIREBASE_CONFIG = {
 };
 const GEMINI_PROXY_URL = 'https://timetable-gem-api.timetableapp-info.workers.dev/api/timetable';
 
+/* ===== PWA通知設定 =====
+   VAPID公開鍵はCloudflare Workerに設定したものと同じ値にします。
+   秘密鍵は絶対にHTMLへ書かず、Cloudflare Worker Secretに保存してください。
+*/
+const PUSH_API_BASE = 'https://timetable-gem-api.timetableapp-info.workers.dev';
+const PUSH_VAPID_PUBLIC_KEY = 'VAPID_PUBLIC_KEYをここに設定';
+const PUSH_STORAGE_KEY = 'timetable-push-device-v1';
+const PUSH_DEFAULTS = { enabled:false, time:'20:00', days:[0,1,2,3,4,5,6], include:{items:true,homework:true,quiz:true,location:false,forgotten:true,notes:false,schedule:true}, sound:true };
+
 /* ===== 教科別カラー定義エリア =====
    教科名をキーにして色を指定します。未登録の教科は従来の色選択を使用します。
    例: '国語': '#ffe0e0', '数学Ⅰ': '#e0eeff'
 */
 const SUBJECT_COLORS = {
-  '国語': 'var(--c0)',
-  '数学Ⅰ': 'var(--c1)',
-  '数学': 'var(--c1)',
-  '英コミュⅠ': 'var(--c2)',
-  '英語': 'var(--c2)',
-  '地理総合': 'var(--c3)',
-  '生物基礎': 'var(--c4)',
-  '化学基礎': 'var(--c4)',
-  '体育': 'var(--c6)'
+  '国語': '#ffe0e0',
+  '数学Ⅰ': '#e0eeff',
+  '数学': '#e0eeff',
+  '英コミュⅠ': '#e8e0f8',
+  '英語': '#e8e0f8',
+  '地理総合': '#ffeedd',
+  '生物基礎': '#e6f6e0',
+  '化学基礎': '#e6f6e0',
+  '体育': '#e5e5e5'
 };
 const GEMINI_MODELS = [
   {value:'gemini-3.8-flash', label:'Gemini 3.8 Flash（高性能）'},
@@ -231,6 +242,7 @@ function seedEvents() {
 function persist() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch (err) { console.warn(err); toast('保存容量の上限に達しました'); }
+  if (pushDevice?.token && pushSettings.enabled) { clearTimeout(window.__pushSyncTimer); window.__pushSyncTimer=setTimeout(updatePushSnapshot,1200); }
 }
 
 function subjectColor(subject, fallbackIdx=0) {
@@ -573,6 +585,113 @@ function openEventEditor(id=null, defaultSlot=null, defaultDateKey=null) {
     
     render(); closeModal(); toast('保存しました');
     askShareToClass();
+  };
+}
+
+/* ===== Push Notifications (認証なし・端末トークン方式) ===== */
+let pushSettings = (() => {
+  try { return {...PUSH_DEFAULTS, ...(JSON.parse(localStorage.getItem('timetable-push-settings-v1')||'{}'))}; }
+  catch { return {...PUSH_DEFAULTS}; }
+})();
+let pushDevice = (() => {
+  try { return JSON.parse(localStorage.getItem(PUSH_STORAGE_KEY)||'null'); } catch { return null; }
+})();
+let pushRegistration = null;
+function b64urlToBytes(value) {
+  const pad='='.repeat((4-value.length%4)%4);
+  const raw=atob((value+pad).replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from(raw,c=>c.charCodeAt(0));
+}
+function randomPushToken() {
+  const bytes=crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+async function ensurePushServiceWorker() {
+  if (!('serviceWorker' in navigator)) throw new Error('このブラウザはService Workerに対応していません');
+  if (!window.isSecureContext) throw new Error('HTTPSで開いてください');
+  pushRegistration = await navigator.serviceWorker.register('./sw.js', {scope:'./'});
+  await navigator.serviceWorker.ready;
+  return pushRegistration;
+}
+async function pushApi(path, body, token=pushDevice?.token) {
+  const headers={'Content-Type':'application/json'};
+  if(token) headers.Authorization='Bearer '+token;
+  const res=await fetch(PUSH_API_BASE+path,{method:'POST',headers,body:JSON.stringify(body)});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||`通知サーバーエラー (${res.status})`);
+  return data;
+}
+function upcomingPushEvents() {
+  const today=dateKey(new Date());
+  const until=dateKey(addDays(new Date(),9));
+  return state.events.filter(e=>e.dateKey>=today && e.dateKey<=until).map(e=>({
+    dateKey:e.dateKey,slot:e.slot,endSlot:e.endSlot,subject:e.subject,
+    items:e.items||'',homework:e.homework||'',quiz:e.quiz||'',location:e.location||'',
+    forgotten:e.forgotten||'',notes:e.notes||''
+  }));
+}
+async function registerPushDevice() {
+  if(!PUSH_VAPID_PUBLIC_KEY || PUSH_VAPID_PUBLIC_KEY.includes('ここに設定'))
+    throw new Error('HTML内のPUSH_VAPID_PUBLIC_KEYにWorkerのVAPID公開鍵を設定してください');
+  const reg=await ensurePushServiceWorker();
+  if(!('PushManager' in window)) throw new Error('このブラウザはWeb Pushに対応していません');
+  const permission=await Notification.requestPermission();
+  if(permission!=='granted') throw new Error('通知が許可されませんでした。ブラウザの設定を確認してください');
+  let subscription=await reg.pushManager.getSubscription();
+  if(!subscription) subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64urlToBytes(PUSH_VAPID_PUBLIC_KEY)});
+  if(!pushDevice?.token) pushDevice={token:randomPushToken()};
+  const settings={...pushSettings, enabled:true};
+  await pushApi('/api/push/subscribe',{token:pushDevice.token,subscription:subscription.toJSON(),settings,events:upcomingPushEvents()},null);
+  pushSettings=settings;
+  localStorage.setItem(PUSH_STORAGE_KEY,JSON.stringify(pushDevice));
+  localStorage.setItem('timetable-push-settings-v1',JSON.stringify(pushSettings));
+  return true;
+}
+async function updatePushSnapshot() {
+  if(!pushDevice?.token || !pushSettings.enabled) return;
+  try { await pushApi('/api/push/schedule',{events:upcomingPushEvents()}); }
+  catch(err) { console.warn('Push schedule sync failed:',err); }
+}
+async function disablePushDevice() {
+  if(pushDevice?.token) {
+    try { await pushApi('/api/push/unsubscribe',{}); } catch(err) { console.warn(err); }
+  }
+  try { const reg=await navigator.serviceWorker.getRegistration('./'); const sub=await reg?.pushManager.getSubscription(); if(sub) await sub.unsubscribe(); } catch(err) { console.warn(err); }
+  pushSettings.enabled=false;
+  localStorage.setItem('timetable-push-settings-v1',JSON.stringify(pushSettings));
+  pushDevice=null; localStorage.removeItem(PUSH_STORAGE_KEY);
+}
+function openNotificationSettings() {
+  const days=['日','月','火','水','木','金','土'];
+  const checks=(key,label,checked)=>`<label class="check-row"><input type="checkbox" id="pn_${key}" ${checked?'checked':''}>${label}</label>`;
+  const body=`
+    <p class="help">毎日指定時刻に、翌日の予定をこの端末へ通知します。通知を受け取るにはHTTPSで開き、ブラウザの通知を許可してください。</p>
+    <label>通知時刻<input id="pn_time" type="time" value="${esc(pushSettings.time||'20:00')}"></label>
+    <label>通知する曜日<div class="sw" style="gap:10px">${days.map((d,i)=>`<label class="check-row"><input type="checkbox" id="pn_day_${i}" ${pushSettings.days.includes(i)?'checked':''}>${d}</label>`).join('')}</div></label>
+    <hr><b style="font-size:13px">通知に含める内容</b>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+      ${checks('items','持ち物',pushSettings.include.items)}
+      ${checks('homework','宿題',pushSettings.include.homework)}
+      ${checks('quiz','小テスト',pushSettings.include.quiz)}
+      ${checks('location','場所',pushSettings.include.location)}
+      ${checks('forgotten','忘れ物',pushSettings.include.forgotten)}
+      ${checks('notes','備考',pushSettings.include.notes)}
+      ${checks('schedule','時間割',pushSettings.include.schedule)}
+    </div>
+    <hr>${checks('sound','通知音を有効にする（端末・OSの通知設定に依存）',pushSettings.sound)}
+    <p class="help">iPhoneはiOS 16.4以降でホーム画面に追加したWebアプリから通知を受け取れます。通知音はWebアプリ側から任意の音に変更できず、端末の通知設定に従います。</p>
+    <div class="btns"><button class="btn r" id="pn_off">この端末の通知を解除</button><button class="btn g" id="pn_close">閉じる</button><button class="btn" id="pn_save">保存して通知を有効化</button></div>`;
+  openModal('通知設定',body);
+  const dlg=$('#dlg');
+  dlg.querySelector('#pn_close').onclick=closeModal;
+  dlg.querySelector('#pn_off').onclick=async()=>{try{await disablePushDevice();closeModal();toast('この端末の通知を解除しました');}catch(e){toast('解除できませんでした: '+e.message,5000);}};
+  dlg.querySelector('#pn_save').onclick=async()=>{
+    const days=[]; for(let i=0;i<7;i++) if(dlg.querySelector('#pn_day_'+i).checked) days.push(i);
+    const include={}; ['items','homework','quiz','location','forgotten','notes','schedule'].forEach(k=>include[k]=dlg.querySelector('#pn_'+k).checked);
+    pushSettings={enabled:true,time:dlg.querySelector('#pn_time').value||'20:00',days,include,sound:dlg.querySelector('#pn_sound').checked};
+    if(!days.length){toast('通知する曜日を1つ以上選択してください');return;}
+    try { await registerPushDevice(); closeModal(); toast('この端末の通知を登録しました'); }
+    catch(e){toast('通知を登録できませんでした: '+e.message,6000);}
   };
 }
 
@@ -923,6 +1042,7 @@ $('#bMenu').onclick = () => drawer(true);
 $('#scrim').onclick = () => drawer(false);
 document.querySelectorAll('.mi[data-v]').forEach(b => b.onclick = () => { state.view = b.dataset.v; drawer(false); render(); });
 $('#mSet').onclick = () => { drawer(false); openSettings(); };
+$('#mNotify').onclick = () => { drawer(false); openNotificationSettings(); };
 $('#bSettings').onclick = openSettings;
 
 $('#bToday').onclick = () => { state.selectedDate = dateKey(new Date()); render(); };
@@ -976,12 +1096,14 @@ $('#main').addEventListener('touchend', e => {
 });
 
 /* ===== Init ===== */
-const icon = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#1a73e8"/><text x="96" y="124" font-size="90" text-anchor="middle" fill="#fff">時</text></svg>');
-$('#mf').href = URL.createObjectURL(new Blob([JSON.stringify({name:'時間割',short_name:'時間割',display:'standalone',start_url:location.pathname,background_color:'#eceef3',theme_color:'#eceef3',icons:[{src:icon,sizes:'192x192',type:'image/svg+xml',purpose:'any'}]})],{type:'application/manifest+json'}));
+
 
 load();
 applyLogo();
 render();
+ensurePushServiceWorker().catch(err=>console.warn('PWA service worker:',err));
+window.addEventListener('pageshow',()=>updatePushSnapshot());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') updatePushSnapshot();});
 checkIncoming();
 initFirebase().then(connected => {
   if (connected && selectedClassId !== 'custom') syncFromFirebase(false);
