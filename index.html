@@ -638,7 +638,16 @@ async function registerPushDevice() {
   const permission=await Notification.requestPermission();
   if(permission!=='granted') throw new Error('通知が許可されませんでした。ブラウザの設定を確認してください');
   let subscription=await reg.pushManager.getSubscription();
-  if(!subscription) subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64urlToBytes(PUSH_VAPID_PUBLIC_KEY)});
+
+  // 既存の購読を解除し、新しいVAPID公開鍵で購読し直す
+  if(subscription) {
+    await subscription.unsubscribe();
+  }
+
+  subscription=await reg.pushManager.subscribe({
+    userVisibleOnly:true,
+    applicationServerKey:b64urlToBytes(PUSH_VAPID_PUBLIC_KEY)
+  });
   if(!pushDevice?.token) pushDevice={token:randomPushToken()};
   const settings={...pushSettings, enabled:true};
   await pushApi('/api/push/subscribe',{token:pushDevice.token,subscription:subscription.toJSON(),settings,events:upcomingPushEvents()},null);
