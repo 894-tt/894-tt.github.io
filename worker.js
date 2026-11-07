@@ -388,7 +388,17 @@ export default {
     }
   },
 
-  scheduled(controller, env, ctx) {
-    ctx.waitUntil(sendScheduledPushes(env));
+  async scheduled(controller, env, ctx) {
+    console.log('[CRON_DIAG] START', {
+      cron: controller.cron,
+      scheduledTime: new Date(controller.scheduledTime).toISOString()
+    });
+
+    ctx.waitUntil(
+      sendScheduledPushes(env).catch(error => {
+        console.error('[CRON_DIAG] ERROR', error.stack || error.message);
+        throw error;
+      })
+    );
   }
 };
