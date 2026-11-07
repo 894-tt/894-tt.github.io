@@ -332,7 +332,7 @@ function makeNotificationBody(events, settings, tomorrow) {
   }
 
   if (details.length) {
-    lines.push(`{\n${details.join('\n')}\n}`);
+    lines.push(details.join('\n'));
   }
 
   if (inc.schedule) {
@@ -347,7 +347,7 @@ function makeNotificationBody(events, settings, tomorrow) {
       });
 
     if (periods.length) {
-      lines.push(`{\n${periods.join('\n')}\n}`);
+      lines.push(periods.join('\n'));
     }
   }
 
