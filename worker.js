@@ -155,48 +155,128 @@ async function handlePushRequest(request, env) {
 }
 
 async function sendScheduledPushes(env) {
-  if (!env.DB || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) {
+  console.log('[PUSH_DIAG] START', new Date().toISOString());
+
+  if (!env.DB || !env.VAPID_PUBLIC_KEY ||
+      !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) {
+    console.error('[PUSH_DIAG] Missing configuration', {
+      DB: !!env.DB,
+      publicKey: !!env.VAPID_PUBLIC_KEY,
+      privateKey: !!env.VAPID_PRIVATE_KEY,
+      subject: !!env.VAPID_SUBJECT
+    });
     throw new Error('Missing D1 or VAPID configuration');
   }
+
   const now = localParts();
   const today = `${now.year}-${now.month}-${now.day}`;
   const tomorrow = dateAfterDays(today, 1);
-  const rows = await env.DB.prepare('SELECT token_hash, subscription_json, settings_json, events_json, last_sent_date FROM push_devices').all();
 
-  for (const row of rows.results || []) {
+  console.log('[PUSH_DIAG] CLOCK', {
+    today,
+    time: `${now.hour}:${now.minute}`,
+    weekday: weekdayForIso(today),
+    tomorrow
+  });
+
+  const rows = await env.DB.prepare(
+    'SELECT token_hash, subscription_json, settings_json, events_json, last_sent_date FROM push_devices'
+  ).all();
+
+  console.log('[PUSH_DIAG] DEVICES', rows.results?.length || 0);
+
+  for (let i = 0; i < (rows.results || []).length; i++) {
+    const row = rows.results[i];
+
     let settings, subscription, events;
+
     try {
       settings = JSON.parse(row.settings_json);
       subscription = JSON.parse(row.subscription_json);
       events = JSON.parse(row.events_json || '[]');
-    } catch { continue; }
-    if (!settings.enabled || settings.time !== `${now.hour}:${now.minute}` ||
-        !(settings.days || []).includes(weekdayForIso(today)) || row.last_sent_date === today) continue;
+    } catch (error) {
+      console.error('[PUSH_DIAG] JSON ERROR', i, error.message);
+      continue;
+    }
+
+    const timeMatch = settings.time === `${now.hour}:${now.minute}`;
+    const dayMatch = (settings.days || []).includes(weekdayForIso(today));
+    const alreadySent = row.last_sent_date === today;
+    const tomorrowCount = events.filter(
+      e => e.dateKey === tomorrow
+    ).length;
+
+    console.log('[PUSH_DIAG] DEVICE', {
+      index: i,
+      enabled: settings.enabled,
+      time: settings.time,
+      timeMatch,
+      dayMatch,
+      alreadySent,
+      tomorrowCount,
+      validSubscription: validSubscription(subscription)
+    });
+
+    if (!settings.enabled || !timeMatch || !dayMatch || alreadySent) {
+      console.log('[PUSH_DIAG] SKIPPED', i);
+      continue;
+    }
+
     const body = makeNotificationBody(events, settings, tomorrow);
-    if (!body) continue;
+
+    if (!body) {
+      console.log('[PUSH_DIAG] NO TOMORROW EVENTS', i, tomorrow);
+      continue;
+    }
 
     const message = {
-      data: { title: '明日の時間割', body, url: './', sound: settings.sound !== false },
+      data: {
+        title: '明日の時間割',
+        body,
+        url: './',
+        sound: settings.sound !== false
+      },
       options: { ttl: 3600, urgency: 'high' }
     };
+
     try {
       const payload = await buildPushPayload(message, subscription, {
         subject: env.VAPID_SUBJECT,
         publicKey: env.VAPID_PUBLIC_KEY,
         privateKey: env.VAPID_PRIVATE_KEY
       });
+
       const response = await fetch(subscription.endpoint, payload);
+
+      console.log('[PUSH_DIAG] PUSH RESPONSE', {
+        index: i,
+        status: response.status,
+        ok: response.ok
+      });
+
       if (response.status === 404 || response.status === 410) {
-        await env.DB.prepare('DELETE FROM push_devices WHERE token_hash=?').bind(row.token_hash).run();
+        await env.DB.prepare(
+          'DELETE FROM push_devices WHERE token_hash=?'
+        ).bind(row.token_hash).run();
         continue;
       }
-      if (!response.ok) throw new Error(`Push service returned ${response.status}`);
-      await env.DB.prepare('UPDATE push_devices SET last_sent_date=?, updated_at=CURRENT_TIMESTAMP WHERE token_hash=?')
-        .bind(today, row.token_hash).run();
+
+      if (!response.ok) {
+        throw new Error(`Push service returned ${response.status}`);
+      }
+
+      await env.DB.prepare(
+        'UPDATE push_devices SET last_sent_date=?, updated_at=CURRENT_TIMESTAMP WHERE token_hash=?'
+      ).bind(today, row.token_hash).run();
+
+      console.log('[PUSH_DIAG] SENT', i);
+
     } catch (error) {
-      console.error('Push delivery failed:', error?.message || error);
+      console.error('[PUSH_DIAG] DELIVERY ERROR', i, error.message);
     }
   }
+
+  console.log('[PUSH_DIAG] FINISHED');
 }
 
 export default {
