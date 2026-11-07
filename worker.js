@@ -408,6 +408,7 @@ async function handlePushRequest(request, env) {
         subscription_json=excluded.subscription_json,
         settings_json=excluded.settings_json,
         events_json=excluded.events_json,
+        last_sent_date=NULL,
         updated_at=CURRENT_TIMESTAMP`)
       .bind(
         tokenHash,
