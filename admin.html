@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2563eb">
+<title>時間割 通知管理</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f3f5f9;color:#172033}
+*{box-sizing:border-box}body{margin:0;padding:24px 14px 50px}.wrap{max-width:760px;margin:auto}
+h1{font-size:23px;margin:0 0 6px}.sub{color:#64748b;font-size:13px;margin:0 0 20px}
+.card{background:white;border:1px solid #e2e8f0;border-radius:15px;padding:18px;margin:14px 0;box-shadow:0 3px 12px #0f172a08}
+h2{font-size:17px;margin:0 0 14px}label{display:block;font-size:13px;font-weight:650;margin:12px 0 6px}
+input,textarea,select{width:100%;font:inherit;font-size:15px;border:1px solid #cbd5e1;border-radius:9px;padding:11px;background:white;color:#172033}
+textarea{min-height:110px;resize:vertical}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row>*{flex:1;min-width:130px}.check{display:flex;align-items:center;gap:8px;font-weight:500}.check input{width:auto}
+button{border:0;border-radius:9px;background:#2563eb;color:white;padding:11px 16px;font-weight:700;font-size:14px;cursor:pointer}
+button.secondary{background:#e8eef8;color:#1e293b}button.danger{background:#fee2e2;color:#991b1b}
+button:disabled{opacity:.5;cursor:not-allowed}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:#f1f5f9;border-radius:10px;padding:12px;text-align:center}.stat b{display:block;font-size:23px}.stat span{font-size:12px;color:#64748b}
+.muted{font-size:12px;color:#64748b;line-height:1.6}.status{font-size:13px;margin-top:10px;white-space:pre-wrap}.hidden{display:none!important}
+.template-list{display:grid;gap:8px}.template-item{display:flex;gap:8px;align-items:center;border:1px solid #e2e8f0;border-radius:9px;padding:9px}.template-item button{padding:7px 10px}
+@media(max-width:520px){body{padding:18px 10px}.card{padding:14px}.stats{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>時間割 通知管理</h1><p class="sub">登録端末へのお知らせを手動送信できます。</p>
+<section class="card" id="loginCard">
+<h2>管理者ログイン</h2>
+<label for="password">管理者パスワード</label><input id="password" type="password" autocomplete="current-password">
+<div class="row" style="margin-top:12px"><button id="loginBtn">ログイン</button></div><div class="status" id="loginStatus" role="status"></div>
+</section>
+<div id="admin" class="hidden">
+<section class="card">
+<div class="row" style="justify-content:space-between"><h2>登録端末</h2><button class="secondary" id="refreshBtn">更新</button></div>
+<div class="stats"><div class="stat"><b id="total">0</b><span>登録端末</span></div><div class="stat"><b id="enabled">0</b><span>通知ON</span></div><div class="stat"><b id="classCount">0</b><span>クラス数</span></div></div>
+<p class="muted" id="classStats"></p>
+</section>
+<section class="card">
+<h2>通知を作成・送信</h2>
+<label for="target">送信対象</label><select id="target"><option value="all">全登録端末</option><option value="class">クラスを指定</option></select>
+<div id="classWrap" class="hidden"><label for="classId">クラス</label><select id="classId"></select></div>
+<label class="check"><input id="enabledOnly" type="checkbox"> 通知設定がONの端末だけに送る</label>
+<p class="muted" id="recipientCount">送信対象：0台</p>
+<label for="templateSelect">保存テンプレート</label><div class="row"><select id="templateSelect"><option value="">テンプレートを選択</option></select><button class="secondary" id="applyTemplate" type="button">本文に反映</button></div>
+<label for="title">通知タイトル</label><input id="title" maxlength="100" placeholder="例：明日の予定について">
+<label for="message">通知本文</label><textarea id="message" maxlength="3500" placeholder="通知したい内容を入力してください"></textarea>
+<div class="row" style="margin-top:14px"><button id="sendBtn">この内容で送信</button></div><div class="status" id="sendStatus" role="status"></div>
+</section>
+<section class="card">
+<h2>テンプレート管理</h2>
+<label for="templateName">テンプレート名</label><input id="templateName" maxlength="100" placeholder="例：行事のお知らせ">
+<label for="templateBody">テンプレート本文</label><textarea id="templateBody" maxlength="3500" placeholder="繰り返し使う通知文"></textarea>
+<div class="row" style="margin-top:12px"><button id="saveTemplate">新規保存・変更を保存</button><button class="secondary" id="clearTemplate">入力をクリア</button></div>
+<div class="template-list" id="templateList" style="margin-top:14px"></div>
+</section>
+<div class="row"><button class="secondary" id="logoutBtn">ログアウト</button></div>
+</div>
+</div>
+<script>
+const API='https://timetable-gem-api.timetableapp-info.workers.dev/api/push/admin';
+let token=sessionStorage.getItem('pushAdminToken')||'';
+let summary={total:0,enabled:0,classes:{}},templates=[],editingId='';
+const $=id=>document.getElementById(id);
+async function api(path,method='POST',data={}){
+  const headers={'Content-Type':'application/json'};
+  if(token) headers.Authorization='Bearer '+token;
+  const res=await fetch(API+path,{method,headers, ...(method==='GET'?{}:{body:JSON.stringify(data)})});
+  const result=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(result.error||'通信エラー '+res.status);
+  return result;
+}
+function showAdmin(on){$('loginCard').classList.toggle('hidden',on);$('admin').classList.toggle('hidden',!on);}
+function updateCount(){
+  const target=$('target').value, id=$('classId').value, only=$('enabledOnly').checked;
+  let n=target==='class'?(summary.classes[id]||0):summary.total;
+  if(only){
+    if(target==='all') n=summary.enabled;
+    else if(id==='未分類') n=0;
+    else n=Math.min(n,summary.enabled);
+  }
+  $('recipientCount').textContent='送信対象（概算）：'+n+'台 ※通知ONのみの場合、クラス別人数は概算です。';
+}
+async function refresh(){
+  summary=await api('/summary');
+  $('total').textContent=summary.total||0;$('enabled').textContent=summary.enabled||0;
+  const entries=Object.entries(summary.classes||{});
+  $('classCount').textContent=entries.length;
+  $('classStats').textContent=entries.length?entries.map(([k,v])=>k+'：'+v+'台').join(' ／ '):'登録端末はありません。';
+  const selected=$('classId').value;
+  $('classId').innerHTML=entries.map(([k])=>'<option value="'+escapeHtml(k)+'">'+escapeHtml(k)+'</option>').join('');
+  if(entries.some(([k])=>k===selected)) $('classId').value=selected;
+  updateCount();
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function clearTemplate(){editingId='';$('templateName').value='';$('templateBody').value='';}
+async function loadTemplates(){
+  const data=await api('/templates','GET');templates=data.templates||[];
+  $('templateSelect').innerHTML='<option value="">テンプレートを選択</option>'+templates.map(t=>'<option value="'+t.id+'">'+escapeHtml(t.title)+'</option>').join('');
+  $('templateList').innerHTML='';
+  for(const t of templates){
+    const item=document.createElement('div');item.className='template-item';
+    const name=document.createElement('span');name.textContent=t.title;name.style.flex='1';
+    const edit=document.createElement('button');edit.className='secondary';edit.textContent='編集';
+    edit.onclick=()=>{editingId=t.id;$('templateName').value=t.title;$('templateBody').value=t.body;window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});};
+    const del=document.createElement('button');del.className='danger';del.textContent='削除';
+    del.onclick=async()=>{if(!confirm('「'+t.title+'」を削除しますか？'))return;try{await api('/templates','DELETE',{id:t.id});await loadTemplates();clearTemplate();}catch(e){alert(e.message);}};
+    item.append(name,edit,del);$('templateList').append(item);
+  }
+}
+async function enter(){
+  showAdmin(true);
+  try{await refresh();await loadTemplates();}catch(e){$('sendStatus').textContent=e.message;}
+}
+$('loginBtn').onclick=async()=>{
+  $('loginStatus').textContent='確認中...';
+  try{const r=await api('/login','POST',{password:$('password').value});token=r.token;sessionStorage.setItem('pushAdminToken',token);$('password').value='';$('loginStatus').textContent='';await enter();}
+  catch(e){$('loginStatus').textContent=e.message;}
+};
+$('refreshBtn').onclick=async()=>{try{await refresh();await loadTemplates();}catch(e){$('sendStatus').textContent=e.message;}};
+$('target').onchange=()=>{$('classWrap').classList.toggle('hidden',$('target').value!=='class');updateCount();};
+$('classId').onchange=updateCount;$('enabledOnly').onchange=updateCount;
+$('applyTemplate').onclick=()=>{const t=templates.find(x=>x.id===$('templateSelect').value);if(t){$('title').value=t.title;$('message').value=t.body;}};
+$('saveTemplate').onclick=async()=>{
+  try{const r=await api('/templates','POST',{id:editingId||undefined,title:$('templateName').value,body:$('templateBody').value});editingId=r.id;await loadTemplates();alert('テンプレートを保存しました。');}
+  catch(e){alert(e.message);}
+};
+$('clearTemplate').onclick=clearTemplate;
+$('sendBtn').onclick=async()=>{
+  if(!confirm('表示されている送信対象に通知を送信します。よろしいですか？'))return;
+  $('sendBtn').disabled=true;$('sendStatus').textContent='送信中...';
+  try{
+    const r=await api('/send','POST',{title:$('title').value,body:$('message').value,target:$('target').value,classId:$('classId').value,enabledOnly:$('enabledOnly').checked});
+    $('sendStatus').textContent='送信処理完了：対象 '+r.targets+'台 ／ 成功 '+r.sent+'台 ／ 失敗 '+r.failed+'台 ／ 無効 '+r.expired+'台';
+    await refresh();
+  }catch(e){$('sendStatus').textContent=e.message;}
+  finally{$('sendBtn').disabled=false;}
+};
+$('logoutBtn').onclick=async()=>{try{await api('/logout');}catch{}token='';sessionStorage.removeItem('pushAdminToken');showAdmin(false);};
+$('classWrap').classList.add('hidden');
+if(token) enter();else showAdmin(false);
+</script>
+</body></html>
