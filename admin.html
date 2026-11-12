@@ -77,10 +77,9 @@ function updateCount(){
   let n=target==='class'?(summary.classes[id]||0):summary.total;
   if(only){
     if(target==='all') n=summary.enabled;
-    else if(id==='未分類') n=0;
-    else n=Math.min(n,summary.enabled);
+    else n=(summary.enabledClasses||{})[id]||0;
   }
-  $('recipientCount').textContent='送信対象（概算）：'+n+'台 ※通知ONのみの場合、クラス別人数は概算です。';
+  $('recipientCount').textContent='送信対象（概算）：'+n+'台 ※通知ONのみの場合はクラス別の登録数を表示します。';
 }
 async function refresh(){
   summary=await api('/summary');
