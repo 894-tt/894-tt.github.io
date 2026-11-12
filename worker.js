@@ -425,14 +425,14 @@ async function handleAdminRequest(request, env, url, body) {
   }
   if (path === '/api/push/admin/summary') {
     const rows = await env.DB.prepare('SELECT class_id,settings_json FROM push_devices').all();
-    const devices = rows.results || [], classes = {};
+    const devices = rows.results || [], classes = {}, enabledClasses = {};
     let enabled = 0;
     for (const row of devices) {
       const id = row.class_id || '未分類';
       classes[id] = (classes[id] || 0) + 1;
-      try { if (JSON.parse(row.settings_json || '{}').enabled) enabled++; } catch {}
+      try { if (JSON.parse(row.settings_json || '{}').enabled) { enabled++; enabledClasses[id] = (enabledClasses[id] || 0) + 1; } } catch {}
     }
-    return jsonResponse({total:devices.length,enabled,classes});
+    return jsonResponse({total:devices.length,enabled,classes,enabledClasses});
   }
   if (path === '/api/push/admin/send') {
     const title = typeof body.title === 'string' ? body.title.trim().slice(0,100) : '';
@@ -514,7 +514,7 @@ async function handlePushRequest(request, env) {
   }
 
   const adminBody = await request.clone().json().catch(() => ({}));
-  const adminResponse = await handleAdminRequest(request, env, url, adminBody);
+  const adminResponse = await handleAdminRequest(request, env, url, body);
   if (adminResponse) return adminResponse;
 
   if (url.pathname === '/api/push/subscribe') {
