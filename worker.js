@@ -354,6 +354,130 @@ function makeNotificationBody(events, settings, tomorrow) {
   return lines.join('\n').slice(0, 3500);
 }
 
+
+async function ensureAdminSchema(env) {
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS admin_sessions (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)').run();
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS admin_templates (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)').run();
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS admin_login_attempts (ip_hash TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, blocked_until INTEGER NOT NULL DEFAULT 0)').run();
+  const cols = await env.DB.prepare('PRAGMA table_info(push_devices)').all();
+  if (!(cols.results || []).some(c => c.name === 'class_id')) {
+    await env.DB.prepare('ALTER TABLE push_devices ADD COLUMN class_id TEXT').run();
+  }
+}
+function randomHex(bytes = 32) {
+  return [...crypto.getRandomValues(new Uint8Array(bytes))].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+async function adminSession(request, env) {
+  const header = request.headers.get('Authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!/^[a-f0-9]{64}$/.test(token)) return false;
+  const hash = await hashToken(token);
+  const row = await env.DB.prepare('SELECT expires_at FROM admin_sessions WHERE token_hash=?').bind(hash).first();
+  if (!row || Number(row.expires_at) <= Math.floor(Date.now() / 1000)) {
+    if (row) await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash=?').bind(hash).run();
+    return false;
+  }
+  return true;
+}
+async function sendAdminPush(env, subscription, title, body) {
+  if (!validSubscription(subscription)) throw new Error('Invalid subscription');
+  const payload = await buildPushPayload({data:{title,body,url:'./',sound:true},options:{ttl:3600,urgency:'high'}}, subscription, {
+    subject:env.VAPID_SUBJECT, publicKey:env.VAPID_PUBLIC_KEY, privateKey:env.VAPID_PRIVATE_KEY
+  });
+  const response = await fetch(subscription.endpoint, payload);
+  if (response.status === 404 || response.status === 410) return 'expired';
+  if (!response.ok) throw new Error('Push service returned ' + response.status);
+  return 'sent';
+}
+async function handleAdminRequest(request, env, url, body) {
+  const path = url.pathname;
+  if (!path.startsWith('/api/push/admin/')) return null;
+  await ensureAdminSchema(env);
+
+  if (path === '/api/push/admin/login') {
+    const ipHash = await hashToken(request.headers.get('CF-Connecting-IP') || 'unknown');
+    const now = Math.floor(Date.now() / 1000);
+    const attempt = await env.DB.prepare('SELECT attempts,blocked_until FROM admin_login_attempts WHERE ip_hash=?').bind(ipHash).first();
+    if (attempt && Number(attempt.blocked_until) > now) return jsonResponse({error:'ログイン試行が多すぎます。15分後に再試行してください。'},429);
+    const supplied = typeof body.password === 'string' ? body.password : '';
+    const expected = env.ADMIN_PASSWORD || '';
+    let diff = supplied.length ^ expected.length;
+    const length = Math.max(supplied.length, expected.length);
+    for (let i=0;i<length;i++) diff |= (supplied.charCodeAt(i)||0) ^ (expected.charCodeAt(i)||0);
+    if (!expected || diff !== 0) {
+      const count = (attempt ? Number(attempt.attempts) : 0) + 1;
+      const blocked = count >= 5 ? now + 900 : 0;
+      await env.DB.prepare('INSERT INTO admin_login_attempts(ip_hash,attempts,blocked_until) VALUES(?,?,?) ON CONFLICT(ip_hash) DO UPDATE SET attempts=excluded.attempts,blocked_until=excluded.blocked_until')
+        .bind(ipHash, blocked ? 0 : count, blocked).run();
+      return jsonResponse({error:'パスワードが違います。'},401);
+    }
+    await env.DB.prepare('DELETE FROM admin_login_attempts WHERE ip_hash=?').bind(ipHash).run();
+    const token = randomHex();
+    await env.DB.prepare('INSERT INTO admin_sessions(token_hash,expires_at) VALUES(?,?)').bind(await hashToken(token),now+43200).run();
+    return jsonResponse({ok:true,token,expiresIn:43200});
+  }
+
+  if (!(await adminSession(request,env))) return jsonResponse({error:'管理者ログインが必要です。'},401);
+  if (path === '/api/push/admin/logout') {
+    const token = (request.headers.get('Authorization') || '').slice(7);
+    await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash=?').bind(await hashToken(token)).run();
+    return jsonResponse({ok:true});
+  }
+  if (path === '/api/push/admin/summary') {
+    const rows = await env.DB.prepare('SELECT class_id,settings_json FROM push_devices').all();
+    const devices = rows.results || [], classes = {};
+    let enabled = 0;
+    for (const row of devices) {
+      const id = row.class_id || '未分類';
+      classes[id] = (classes[id] || 0) + 1;
+      try { if (JSON.parse(row.settings_json || '{}').enabled) enabled++; } catch {}
+    }
+    return jsonResponse({total:devices.length,enabled,classes});
+  }
+  if (path === '/api/push/admin/send') {
+    const title = typeof body.title === 'string' ? body.title.trim().slice(0,100) : '';
+    const message = typeof body.body === 'string' ? body.body.trim().slice(0,3500) : '';
+    const target = body.target === 'class' ? 'class' : 'all';
+    const classId = typeof body.classId === 'string' ? body.classId.slice(0,100) : '';
+    const enabledOnly = body.enabledOnly === true;
+    if (!title || !message || (target === 'class' && !classId)) return jsonResponse({error:'タイトル・本文・対象クラスを確認してください。'},400);
+    if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) return jsonResponse({error:'Push設定が不足しています。'},500);
+    const rows = await env.DB.prepare('SELECT token_hash,subscription_json,settings_json,class_id FROM push_devices').all();
+    const selected = (rows.results || []).filter(row =>
+      (target !== 'class' || row.class_id === classId) &&
+      (!enabledOnly || (() => { try { return JSON.parse(row.settings_json || '{}').enabled === true; } catch { return false; } })())
+    );
+    let sent=0, failed=0, expired=0;
+    for (const row of selected) {
+      try {
+        const result = await sendAdminPush(env,JSON.parse(row.subscription_json),title,message);
+        if (result === 'sent') sent++;
+        else { expired++; await env.DB.prepare('DELETE FROM push_devices WHERE token_hash=?').bind(row.token_hash).run(); }
+      } catch (error) { failed++; console.error('[ADMIN_PUSH] delivery failed',error.message); }
+    }
+    return jsonResponse({ok:true,targets:selected.length,sent,failed,expired});
+  }
+  if (path === '/api/push/admin/templates') {
+    if (request.method === 'GET') {
+      const rows = await env.DB.prepare('SELECT id,title,body,updated_at FROM admin_templates ORDER BY updated_at DESC').all();
+      return jsonResponse({templates:rows.results || []});
+    }
+    if (request.method === 'POST') {
+      const id = typeof body.id === 'string' && /^[a-f0-9]{16}$/.test(body.id) ? body.id : randomHex(8);
+      const title = typeof body.title === 'string' ? body.title.trim().slice(0,100) : '';
+      const message = typeof body.body === 'string' ? body.body.trim().slice(0,3500) : '';
+      if (!title || !message) return jsonResponse({error:'テンプレート名と本文を入力してください。'},400);
+      await env.DB.prepare('INSERT INTO admin_templates(id,title,body,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET title=excluded.title,body=excluded.body,updated_at=CURRENT_TIMESTAMP').bind(id,title,message).run();
+      return jsonResponse({ok:true,id});
+    }
+    if (request.method === 'DELETE') {
+      await env.DB.prepare('DELETE FROM admin_templates WHERE id=?').bind(typeof body.id === 'string' ? body.id : '').run();
+      return jsonResponse({ok:true});
+    }
+  }
+  return jsonResponse({error:'Not found'},404);
+}
+
 async function handlePushRequest(request, env) {
   const url = new URL(request.url);
 
@@ -388,6 +512,10 @@ async function handlePushRequest(request, env) {
     return jsonResponse({ error: 'Invalid JSON' }, 400);
   }
 
+  const adminBody = await request.clone().json().catch(() => ({}));
+  const adminResponse = await handleAdminRequest(request, env, url, adminBody);
+  if (adminResponse) return adminResponse;
+
   if (url.pathname === '/api/push/subscribe') {
     const token = String(body.token || '');
     const events = Array.isArray(body.events) ? body.events.slice(0, 500) : [];
@@ -402,19 +530,21 @@ async function handlePushRequest(request, env) {
 
     const tokenHash = await hashToken(token);
 
-    await env.DB.prepare(`INSERT INTO push_devices(token_hash, subscription_json, settings_json, events_json, updated_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    await env.DB.prepare(`INSERT INTO push_devices(token_hash, subscription_json, settings_json, events_json, class_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(token_hash) DO UPDATE SET
         subscription_json=excluded.subscription_json,
         settings_json=excluded.settings_json,
         events_json=excluded.events_json,
+        class_id=excluded.class_id,
         last_sent_date=NULL,
         updated_at=CURRENT_TIMESTAMP`)
       .bind(
         tokenHash,
         JSON.stringify(body.subscription),
         JSON.stringify(body.settings),
-        JSON.stringify(events)
+        JSON.stringify(events),
+        typeof body.classId === 'string' ? body.classId.slice(0, 100) : null
       )
       .run();
 
@@ -434,9 +564,9 @@ async function handlePushRequest(request, env) {
     const events = Array.isArray(body.events) ? body.events.slice(0, 500) : [];
 
     const result = await env.DB.prepare(
-      'UPDATE push_devices SET events_json=?, updated_at=CURRENT_TIMESTAMP WHERE token_hash=?'
+      'UPDATE push_devices SET events_json=?, class_id=?, updated_at=CURRENT_TIMESTAMP WHERE token_hash=?'
     )
-      .bind(JSON.stringify(events), tokenHash)
+      .bind(JSON.stringify(events), typeof body.classId === 'string' ? body.classId.slice(0, 100) : null, tokenHash)
       .run();
 
     if (!(result.meta?.changes > 0)) {
