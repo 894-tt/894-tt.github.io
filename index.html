@@ -650,7 +650,7 @@ async function registerPushDevice() {
   });
   if(!pushDevice?.token) pushDevice={token:randomPushToken()};
   const settings={...pushSettings, enabled:true};
-  await pushApi('/api/push/subscribe',{token:pushDevice.token,subscription:subscription.toJSON(),settings,events:upcomingPushEvents()},null);
+  await pushApi('/api/push/subscribe',{token:pushDevice.token,subscription:subscription.toJSON(),settings,events:upcomingPushEvents(),classId:selectedClassId},null);
   pushSettings=settings;
   localStorage.setItem(PUSH_STORAGE_KEY,JSON.stringify(pushDevice));
   localStorage.setItem('timetable-push-settings-v1',JSON.stringify(pushSettings));
@@ -658,7 +658,7 @@ async function registerPushDevice() {
 }
 async function updatePushSnapshot() {
   if(!pushDevice?.token || !pushSettings.enabled) return;
-  try { await pushApi('/api/push/schedule',{events:upcomingPushEvents()}); }
+  try { await pushApi('/api/push/schedule',{events:upcomingPushEvents(),classId:selectedClassId}); }
   catch(err) { console.warn('Push schedule sync failed:',err); }
 }
 async function disablePushDevice() {
