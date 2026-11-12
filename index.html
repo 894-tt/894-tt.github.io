@@ -597,6 +597,8 @@ let pushDevice = (() => {
   try { return JSON.parse(localStorage.getItem(PUSH_STORAGE_KEY)||'null'); } catch { return null; }
 })();
 let pushRegistration = null;
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstallPrompt = e; });
 function b64urlToBytes(value) {
   const pad='='.repeat((4-value.length%4)%4);
   const raw=atob((value+pad).replace(/-/g,'+').replace(/_/g,'/'));
@@ -695,6 +697,19 @@ function openNotificationSettings() {
   dlg.querySelector('#pn_close').onclick=closeModal;
   dlg.querySelector('#pn_off').onclick=async()=>{try{await disablePushDevice();closeModal();toast('この端末の通知を解除しました');}catch(e){toast('解除できませんでした: '+e.message,5000);}};
   dlg.querySelector('#pn_save').onclick=async()=>{
+    const installed = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (!installed) {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        if (choice.outcome !== 'accepted') { toast('アプリをインストールしてから通知を有効にしてください'); return; }
+        toast('インストール後、アプリを開いて通知設定をもう一度保存してください', 6000);
+      } else {
+        alert('通知を有効にする前に、この時間割アプリをホーム画面またはデスクトップにインストールしてください。\\n\\nChrome：アドレスバー右側のインストールアイコン、またはメニュー「アプリをインストール」から追加できます。\\niPhone：共有ボタン →「ホーム画面に追加」から追加できます。');
+      }
+      return;
+    }
     const days=[]; for(let i=0;i<7;i++) if(dlg.querySelector('#pn_day_'+i).checked) days.push(i);
     const include={}; ['items','homework','quiz','location','forgotten','notes','schedule'].forEach(k=>include[k]=dlg.querySelector('#pn_'+k).checked);
     pushSettings={enabled:true,time:dlg.querySelector('#pn_time').value||'20:00',days,include,sound:dlg.querySelector('#pn_sound').checked};
@@ -1093,6 +1108,7 @@ $('#classSelect').onchange = async e => {
   } else {
     await syncFromFirebase(true);
   }
+  await updatePushSnapshot();
 };
 
 let sx = 0;
