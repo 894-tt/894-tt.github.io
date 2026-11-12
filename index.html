@@ -97,6 +97,11 @@ input,textarea,select{font:inherit;font-size:14px;padding:8px;border:1px solid #
 .import-details label { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 4px; flex-direction: row; }
 .muted { font-size: 12px; color: var(--sub); }
 .help { font-size: 11px; color: #666; margin-top:2px; }
+.install-guide{text-align:center;gap:12px}
+.install-guide img{display:block;width:min(100%,320px);aspect-ratio:1/1;object-fit:contain;margin:0 auto;border-radius:12px;background:#f1f3f6}
+.install-guide .install-note{font-size:13px;line-height:1.65;text-align:left;color:var(--sub)}
+.install-guide .btns{justify-content:center}
+
 </style>
 </head>
 <body>
@@ -173,6 +178,15 @@ const PUSH_API_BASE = 'https://timetable-gem-api.timetableapp-info.workers.dev';
 const PUSH_VAPID_PUBLIC_KEY = 'BHb61PudUnTyVeeytNRLrpdDfuzrBF-ItwdVxQt-LgFMIDa8DbMfRzO0h4tTVU5NUGuechxfyT9FmsXRS6F853A';
 const PUSH_STORAGE_KEY = 'timetable-push-device-v1';
 const PUSH_DEFAULTS = { enabled:false, time:'20:00', days:[0,1,2,3,4,5,6], include:{items:true,homework:true,quiz:true,location:false,forgotten:true,notes:false,schedule:true}, sound:true };
+
+/* ===== アプリのインストール案内画像（Imgur URLを設定）=====
+   3枚とも正方形画像を推奨。URLは https://i.imgur.com/xxxxxx.png の形式。
+*/
+const INSTALL_GUIDE_IMAGES = {
+  ios: '',       // iPhone・iPad用
+  android: '',   // Android用
+  desktop: ''    // Windows・ChromeOSなど用
+};
 
 /* ===== 教科別カラー定義エリア =====
    教科名をキーにして色を指定します。未登録の教科は従来の色選択を使用します。
@@ -672,6 +686,57 @@ async function disablePushDevice() {
   localStorage.setItem('timetable-push-settings-v1',JSON.stringify(pushSettings));
   pushDevice=null; localStorage.removeItem(PUSH_STORAGE_KEY);
 }
+function getInstallPlatform() {
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'desktop';
+}
+
+function showInstallGuide() {
+  const platform = getInstallPlatform();
+  const imageUrl = INSTALL_GUIDE_IMAGES[platform];
+  const image = imageUrl
+    ? '<img src="' + esc(imageUrl) + '" alt="アプリのインストール方法">'
+    : '<div class="install-note">案内画像のURLは、HTML内の INSTALL_GUIDE_IMAGES に設定してください。</div>';
+
+  let note = '';
+  if (platform === 'ios') {
+    note = 'Safariの画面下（または上）にある共有ボタンを押し、「ホーム画面に追加」を選んでください。追加後はホーム画面のアイコンからアプリを開いてください。';
+  } else if (platform === 'android') {
+    note = '下の「インストール」ボタンを押してください。表示された確認画面でインストールを選びます。';
+  } else {
+    note = 'ChromeまたはEdgeのアドレスバー付近にあるインストールアイコン、またはブラウザメニューの「アプリをインストール」から追加してください。';
+  }
+
+  const button = platform === 'android'
+    ? '<div class="btns"><button class="btn" id="installNow">インストール</button><button class="btn g" id="installClose">あとで</button></div>'
+    : '<div class="btns"><button class="btn g" id="installClose">閉じる</button></div>';
+
+  openModal('アプリのインストール', '<div class="dlg install-guide">' + image +
+    '<p class="install-note">' + note + '</p>' + button + '</div>');
+
+  const dlg = $('#dlg');
+  dlg.querySelector('#installClose').onclick = closeModal;
+  if (platform === 'android') {
+    dlg.querySelector('#installNow').onclick = async () => {
+      if (!deferredInstallPrompt) {
+        toast('インストールメニューが利用できません。ブラウザのメニューから「アプリをインストール」を選んでください。', 6000);
+        return;
+      }
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      if (choice.outcome === 'accepted') {
+        closeModal();
+        toast('インストール後、アプリを開いて通知設定をもう一度保存してください。', 6000);
+      }
+    };
+  }
+}
+
 function openNotificationSettings() {
   const days=['日','月','火','水','木','金','土'];
   const checks=(key,label,checked)=>`<label class="check-row"><input type="checkbox" id="pn_${key}" ${checked?'checked':''}>${label}</label>`;
@@ -699,15 +764,7 @@ function openNotificationSettings() {
   dlg.querySelector('#pn_save').onclick=async()=>{
     const installed = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
     if (!installed) {
-      if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        const choice = await deferredInstallPrompt.userChoice;
-        deferredInstallPrompt = null;
-        if (choice.outcome !== 'accepted') { toast('アプリをインストールしてから通知を有効にしてください'); return; }
-        toast('インストール後、アプリを開いて通知設定をもう一度保存してください', 6000);
-      } else {
-        alert('通知を有効にする前に、この時間割アプリをホーム画面またはデスクトップにインストールしてください。\\n\\nChrome：アドレスバー右側のインストールアイコン、またはメニュー「アプリをインストール」から追加できます。\\niPhone：共有ボタン →「ホーム画面に追加」から追加できます。');
-      }
+      showInstallGuide();
       return;
     }
     const days=[]; for(let i=0;i<7;i++) if(dlg.querySelector('#pn_day_'+i).checked) days.push(i);
