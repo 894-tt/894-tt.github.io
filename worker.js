@@ -444,7 +444,7 @@ async function handleAdminRequest(request, env, url, body) {
     if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) return jsonResponse({error:'Push設定が不足しています。'},500);
     const rows = await env.DB.prepare('SELECT token_hash,subscription_json,settings_json,class_id FROM push_devices').all();
     const selected = (rows.results || []).filter(row =>
-      (target !== 'class' || row.class_id === classId) &&
+      (target !== 'class' || (classId === '未分類' ? !row.class_id : row.class_id === classId)) &&
       (!enabledOnly || (() => { try { return JSON.parse(row.settings_json || '{}').enabled === true; } catch { return false; } })())
     );
     let sent=0, failed=0, expired=0;
