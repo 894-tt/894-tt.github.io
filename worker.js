@@ -496,7 +496,7 @@ async function handlePushRequest(request, env) {
     });
   }
 
-  if (request.method !== 'POST') {
+  if (request.method !== 'POST' && !(url.pathname === '/api/push/admin/templates' && (request.method === 'GET' || request.method === 'DELETE'))) {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
