@@ -83,6 +83,78 @@ input,textarea,select{font:inherit;font-size:14px;padding:8px;border:1px solid #
 .sch h3{margin:12px 14px 4px;font-size:14px;display:flex;justify-content:space-between;align-items:center}.sch p{margin:2px 18px;font-size:13px}
 
 .check-row { display: flex; align-items: center; gap: 9px; font-size: 13px; flex-direction: row !important; }
+
+/* 通知設定：内容チェックを読みやすいカード型に */
+.notify-options{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:9px;
+  margin:10px 0 14px;
+}
+.dlg label.notify-option{
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-height:50px;
+  margin:0;
+  padding:11px 13px;
+  border:1px solid #d7dce5;
+  border-radius:12px;
+  background:#fff;
+  color:var(--ink);
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+  transition:background .15s,border-color .15s,box-shadow .15s;
+}
+.dlg label.notify-option:has(input:checked){
+  background:#edf4ff;
+  border-color:#7aa7ed;
+  box-shadow:inset 0 0 0 1px #7aa7ed;
+}
+.dlg label.notify-option input[type=checkbox]{
+  appearance:none;
+  -webkit-appearance:none;
+  flex:0 0 21px;
+  width:21px;
+  height:21px;
+  min-width:21px;
+  margin:0;
+  padding:0;
+  border:1.8px solid #8b95a5;
+  border-radius:6px;
+  background:#fff;
+  cursor:pointer;
+  display:grid;
+  place-items:center;
+}
+.dlg label.notify-option input[type=checkbox]:checked{
+  border-color:#1a73e8;
+  background:#1a73e8;
+}
+.dlg label.notify-option input[type=checkbox]:checked::after{
+  content:"";
+  width:5px;
+  height:10px;
+  border:solid #fff;
+  border-width:0 2px 2px 0;
+  transform:rotate(45deg) translate(-1px,-1px);
+}
+.dlg label.notify-option input[type=checkbox]:focus-visible{
+  outline:3px solid #1a73e855;
+  outline-offset:2px;
+}
+.notify-sound-wrap{
+  padding-top:12px;
+  border-top:1px solid #0002;
+}
+@media(max-width:420px){
+  .notify-options{grid-template-columns:1fr;gap:7px}
+  .dlg label.notify-option{min-height:46px;padding:10px 12px}
+}
+
 .import-preview { width: 100%; max-height: 200px; object-fit: contain; background: #eee; border-radius: 8px; border: 1px solid #ccc; margin:8px 0; }
 .progress { height: 6px; background: #e8eaf0; border-radius: 99px; overflow: hidden; margin: 8px 0; }
 .progress > div { height: 100%; width: 0; background: #1a73e8; transition: width .15s; }
@@ -739,13 +811,13 @@ function showInstallGuide() {
 
 function openNotificationSettings() {
   const days=['日','月','火','水','木','金','土'];
-  const checks=(key,label,checked)=>`<label class="check-row"><input type="checkbox" id="pn_${key}" ${checked?'checked':''}>${label}</label>`;
+  const checks=(key,label,checked)=>`<label class="notify-option"><span>${label}</span><input type="checkbox" id="pn_${key}" ${checked?'checked':''}></label>`;
   const body=`
     <p class="help">毎日指定時刻に、翌日の予定をこの端末へ通知します。通知を受け取るにはHTTPSで開き、ブラウザの通知を許可してください。</p>
     <label>通知時刻<input id="pn_time" type="time" value="${esc(pushSettings.time||'20:00')}"></label>
     <label>通知する曜日<div class="sw" style="gap:10px">${days.map((d,i)=>`<label class="check-row"><input type="checkbox" id="pn_day_${i}" ${pushSettings.days.includes(i)?'checked':''}>${d}</label>`).join('')}</div></label>
     <hr><b style="font-size:13px">通知に含める内容</b>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+    <div class="notify-options">
       ${checks('items','持ち物',pushSettings.include.items)}
       ${checks('homework','宿題',pushSettings.include.homework)}
       ${checks('quiz','小テスト',pushSettings.include.quiz)}
@@ -754,7 +826,7 @@ function openNotificationSettings() {
       ${checks('notes','備考',pushSettings.include.notes)}
       ${checks('schedule','時間割',pushSettings.include.schedule)}
     </div>
-    <hr>${checks('sound','通知音を有効にする（端末・OSの通知設定に依存）',pushSettings.sound)}
+    <div class="notify-sound-wrap">${checks('sound','通知音を有効にする（端末・OSの通知設定に依存）',pushSettings.sound)}</div>
     <p class="help">iPhoneはiOS 16.4以降でホーム画面に追加したWebアプリから通知を受け取れます。通知音はWebアプリ側から任意の音に変更できず、端末の通知設定に従います。</p>
     <div class="btns"><button class="btn r" id="pn_off">この端末の通知を解除</button><button class="btn g" id="pn_close">閉じる</button><button class="btn" id="pn_save">保存して通知を有効化</button></div>`;
   openModal('通知設定',body);
