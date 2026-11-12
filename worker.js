@@ -509,7 +509,8 @@ async function handlePushRequest(request, env) {
   try {
     body = await request.json();
   } catch {
-    return jsonResponse({ error: 'Invalid JSON' }, 400);
+    if (request.method === 'GET') body = {};
+    else return jsonResponse({ error: 'Invalid JSON' }, 400);
   }
 
   const adminBody = await request.clone().json().catch(() => ({}));
