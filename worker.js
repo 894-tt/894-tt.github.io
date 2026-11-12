@@ -631,7 +631,7 @@ export default {
       });
     }
 
-    // Push endpoints are handled before the original Gemini route.
+    // Push endpoints (including the admin API) are handled before the original Gemini route.
     const pushResponse = await handlePushRequest(request, env);
 
     if (pushResponse) return pushResponse;
