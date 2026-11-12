@@ -715,7 +715,7 @@ function showInstallGuide() {
     ? '<div class="btns"><button class="btn" id="installNow">インストール</button><button class="btn g" id="installClose">あとで</button></div>'
     : '<div class="btns"><button class="btn g" id="installClose">閉じる</button></div>';
 
-  openModal('アプリのインストール', '<div class="dlg install-guide">' + image +
+  openModal('アプリのインストール', '<div class="install-guide">' + image +
     '<p class="install-note">' + note + '</p>' + button + '</div>');
 
   const dlg = $('#dlg');
